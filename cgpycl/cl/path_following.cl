@@ -29,10 +29,9 @@ __kernel void matrix_vector_product(
         index = Aindptr[row];
         last_index = Aindptr[row+1];
 
-        while (index < last_index) {
+        for (; index < last_index; index++) {
             col = Aindices[index];
             val += Adata[index]*x[col*gsize+gid];
-            index += 1;
         }
 
         out[row_gid] = val;
@@ -59,7 +58,7 @@ __kernel void normal_matrix_vector_product(
     */
     uint gid = get_global_id(0);
     uint gsize = get_global_size(0);
-    ushort row, col, ii, jj, ik;
+    ushort row, col, ii, jj;
     uint row_gid, kk;
     ushort col_start, col_end, col_ptr, col_ptr_end;
     double val, inner_val;
@@ -67,31 +66,26 @@ __kernel void normal_matrix_vector_product(
     for (row=0; row<Asize; row++) {
         row_gid = row*gsize + gid;
         val = 0.0;
-        
+
         col_ptr = Anorm_rowptr[row];
         col_ptr_end = Anorm_rowptr[row + 1];
-
         //printf("row [%d]; col_ptr, col_ptr_end [%d, %d]\n", row, col_ptr, col_ptr_end);
 
-        while (col_ptr < col_ptr_end) {
+        for (; col_ptr < col_ptr_end; col_ptr++) {
             col_start = Anorm_colptr[col_ptr];
             col_end = Anorm_colptr[col_ptr + 1];
             col = Anorm_colindices[col_ptr];
             inner_val = 0.0;
 
-            while (col_start < col_end) {
+            for (; col_start < col_end; col_start++) {
                 ii = Anorm_indptr_i[col_start];
                 jj = Anorm_indptr_j[col_start];
-                ik = Anorm_indices[col_start];   
-                kk = gsize*ik + gid;             
+                kk = gsize*Anorm_indices[col_start] + gid;
                 inner_val += Adata[ii]*Adata[jj]*x[kk]/z[kk];
-                col_start += 1;
             }
 
             //printf("row [%d]; col_start, col_end [%d, %d]\n", row, col_start, col_end);
             val += inner_val*b[col*gsize + gid];
-            col_ptr += 1;
-            
         }
 
         out[row_gid] = val;
@@ -127,30 +121,27 @@ double vector_normal_eqn_vector_product(
 
     for (row=0; row<Asize; row++) {
         row_gid = row*gsize + gid;
-        
+
         col_ptr = Anorm_rowptr[row];
         col_ptr_end = Anorm_rowptr[row + 1];
 
-        while (col_ptr < col_ptr_end) {
+        for (; col_ptr < col_ptr_end; col_ptr++) {
             col_start = Anorm_colptr[col_ptr];
             col_end = Anorm_colptr[col_ptr + 1];
             col = Anorm_colindices[col_ptr];
             inner_val = 0.0;
 
-            while (col_start < col_end) {
+            for (; col_start < col_end; col_start++) {
                 ii = Anorm_indptr_i[col_start];
                 jj = Anorm_indptr_j[col_start];
-                ik = Anorm_indices[col_start];   
-                kk = gsize*ik + gid;             
+                ik = Anorm_indices[col_start];
+                kk = gsize*ik + gid;
                 inner_val += Adata[ii]*Adata[jj]*x[kk]/z[kk];
-                col_start += 1;
             }
 
             //printf("row [%d]; col_start, col_end [%d, %d]\n", row, col_start, col_end);
             val += b[row_gid]*inner_val*b[col*gsize + gid];
-            col_ptr += 1;
-            
-        }        
+        }
 
     }
 
@@ -183,7 +174,7 @@ void residuals(
     // Compute the matrix-vector product (A(x/z)A^T)y
     normal_matrix_vector_product(Adata, Asize, Anorm_rowptr, Anorm_colptr, Anorm_colindices, Anorm_indices,
                                  Anorm_indptr_i, Anorm_indptr_j, x, z, y, out);
-    
+
     for (row=0; row<Asize; row++) {
         row_gid = row*gsize + gid;
 
@@ -219,25 +210,26 @@ void preconditioned_residuals(
     uint col_start, col_end, col_ptr, col_ptr_end;
     double val;
 
-    for (row=0; row<10; row++) {
-        row_gid = row*gsize + gid;       
+    for (row=0; row<Asize; row++) {
+        row_gid = row*gsize + gid;
 
         col_ptr = Anorm_diagptr[row];
-        
+
         col_start = Anorm_colptr[col_ptr];
         col_end = Anorm_colptr[col_ptr + 1];
-        
+
         val = 0.0;
 
         while (col_start < col_end) {
             ii = Anorm_indptr_i[col_start];
             jj = Anorm_indptr_j[col_start];
-            ik = Anorm_indices[col_start];   
-            kk = gsize*ik + gid;             
+            ik = Anorm_indices[col_start];
+            kk = gsize*ik + gid;
             val += Adata[ii]*Adata[jj]*x[kk]/z[kk];
             col_start += 1;
         }
 
+        // printf("pre-cond %d of %d:, %f %f %f\n", row_gid, Asize, r[row_gid], val, r[row_gid]/val);
         out[row_gid] = r[row_gid]/val;
     }
 }
@@ -338,7 +330,7 @@ __kernel void normal_eqn_conjugate_gradient(
 
     // Compute the initial residuals
     residuals(Adata, Asize, Anorm_rowptr, Anorm_colptr, Anorm_colindices, Anorm_indices,
-              Anorm_indptr_i, Anorm_indptr_j, x, z, b, y, r);    
+              Anorm_indptr_i, Anorm_indptr_j, x, z, b, y, r);
 
     // Compute preconditioned residuals
     preconditioned_residuals(Adata, Asize, Anorm_diagptr, Anorm_colptr, Anorm_colindices, Anorm_indices,
@@ -349,7 +341,7 @@ __kernel void normal_eqn_conjugate_gradient(
     // initialise p
     vector_copy(w, p, Asize);
 
-    for (iter=0; iter<20; iter++) {
+    for (iter=0; iter<1000; iter++) {
         //printf("Iteration: %d\n", iter);
         alpha = r_z / vector_normal_eqn_vector_product(Adata, Asize, Anorm_rowptr, Anorm_colptr, Anorm_colindices, Anorm_indices,
                                                        Anorm_indptr_i, Anorm_indptr_j, x, z, p);
@@ -363,7 +355,7 @@ __kernel void normal_eqn_conjugate_gradient(
 
         rr = sqrt(dot_product(r, r, Asize));
 
-        printf("%d iter: %d: |residuals| %g\n", gid, iter, rr);
+        // printf("%d iter: %d: |residuals| %g\n", gid, iter, rr);
 
         if (rr < 1e-8) {
             //printf("%d iter: %d: |residuals| %g\n", gid, iter, rr);
@@ -582,8 +574,8 @@ ushort normal_eqn_step(
     double max_x = vector_max(x, ATsize);
     double max_y = vector_max(y, Asize);
 
-    printf("norm-r: %g, norm-s: %g, gamma: %g, max(x): %g, max(y): %g\n", normr, norms, gamma, max_x, max_y);
-    if ((normr < 1e-6) && (norms < 1e-6) && (gamma < 1e-6)) {
+    //printf("norm-r: %g, norm-s: %g, gamma: %g, max(x): %g, max(y): %g\n", normr, norms, gamma, max_x, max_y);
+    if ((normr < 1e-3) && (norms < 1e-3) && (gamma < 1e-3)) {
         // Feasible and optimal; no further work!
         // TODO set a status output?
         return 0;
@@ -659,7 +651,7 @@ __kernel void normal_eqn_solve(
         vector_set(y, 1.0, Asize);
     }
 
-    for (i=0; i<10; i++) {
+    for (i=0; i<50; i++) {
         status = normal_eqn_step(
             Aindptr, Aindices, Adata, Asize,
             ATindptr, ATindices, ATdata, ATsize,

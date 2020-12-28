@@ -45,7 +45,7 @@ class LP:
     def next_row(self) -> int:
         """Return the next row id"""
         return self.nrows
-        
+
     @property
     def data(self):
         return self._data
@@ -73,7 +73,7 @@ class LP:
         else:
             n = 0
         return n
-        
+
 
 class PathFollowingClSolver(Solver):
     name = 'path-following-cl'
@@ -81,14 +81,14 @@ class PathFollowingClSolver(Solver):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.cl_context = cl.create_some_context()
-        self.cl_queue = cl.CommandQueue(self.cl_context)    
+        self.cl_queue = cl.CommandQueue(self.cl_context)
 
     def setup(self, model):
         self.all_nodes = list(sorted(model.graph.nodes(), key=lambda n: n.fully_qualified_name))
         self.all_edges = edges = list(model.graph.edges())
         if not self.all_nodes or not self.all_edges:
             raise ModelStructureError("Model is empty")
-       
+
         n = 0
         node_data = {}
         for _node in self.all_nodes:
@@ -155,7 +155,6 @@ class PathFollowingClSolver(Solver):
                 continue
             node_data[start_node].out_edges.append(row)
             node_data[end_node].in_edges.append(row)
-            print('edge', row, start_node, end_node)
 
         # Apply nodal flow constraints
         self.row_map_ineq_non_storage = {}
@@ -165,7 +164,7 @@ class PathFollowingClSolver(Solver):
         for some_node in non_storages:
             # Don't add un-constrained nodes to the matrix
             if some_node.max_flow == np.inf:
-                continue         
+                continue
 
             # Differentiate betwen the node type.
             # Input and other nodes use the outgoing edge flows to apply the flow constraint on
@@ -184,13 +183,13 @@ class PathFollowingClSolver(Solver):
                 cols = d.out_edges
 
             if some_node.min_flow == some_node.max_flow:
-                # This is an equality constraint                
+                # This is an equality constraint
                 row = lp_eq.add_row(cols, [1.0 for _ in cols])
                 self.row_map_eq_non_storage[some_node] = row
             else:
                 if some_node.min_flow != 0.0:
                     raise NotImplementedError('Path following solver does not support non-zero '
-                                              'minimum flows ({}).'.format(some_node.name))  
+                                              'minimum flows ({}).'.format(some_node.name))
                 # Add an in-equality constraint for the max flow
                 row = lp_ineq.add_row(cols, [1.0 for _ in cols])
                 self.row_map_ineq_non_storage[some_node] = row
@@ -201,7 +200,7 @@ class PathFollowingClSolver(Solver):
                 col_vals = cross_domain_cols[some_node]
 
                 row = lp_eq.add_row(
-                    cols + [c for c, _ in col_vals], 
+                    cols + [c for c, _ in col_vals],
                     [-1.0 for _ in cols] + [1./v for _, v in col_vals]
                 )
 
@@ -215,7 +214,7 @@ class PathFollowingClSolver(Solver):
                 in_cols + out_cols,
                 [1.0 for _ in in_cols] + [-1.0 for _ in out_cols]
             )
-        
+
         # Add storage constraints
         for storage in storages:
 
@@ -234,7 +233,7 @@ class PathFollowingClSolver(Solver):
             row2 = lp_ineq.add_row(
                 cols_output + cols_input,
                 [-1.0 for _ in cols_output] + [1.0 for _ in cols_input]
-            )            
+            )
 
             self.row_map_ineq_storage[storage] = (row1, row2)
 
@@ -286,29 +285,29 @@ class PathFollowingClSolver(Solver):
 
         self.b_buf = cl.Buffer(self.cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=self.b)
         self.c_buf = cl.Buffer(self.cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=self.c)
-        
+
         self.x = np.zeros_like(self.c)
         self.x_buf = cl.Buffer(self.cl_context, MF.READ_WRITE, self.c.nbytes)
-        self.z_buf = cl.Buffer(self.cl_context, MF.READ_WRITE, self.c.nbytes)        
+        self.z_buf = cl.Buffer(self.cl_context, MF.READ_WRITE, self.c.nbytes)
         self.y_buf = cl.Buffer(self.cl_context, MF.READ_WRITE, self.b.nbytes)
 
         self.dx_buf = cl.Buffer(self.cl_context, MF.READ_WRITE, self.c.nbytes)
-        self.dz_buf = cl.Buffer(self.cl_context, MF.READ_WRITE, self.c.nbytes)        
+        self.dz_buf = cl.Buffer(self.cl_context, MF.READ_WRITE, self.c.nbytes)
         self.dy_buf = cl.Buffer(self.cl_context, MF.READ_WRITE, self.b.nbytes)
-        
+
         # Work arrays
         self.r_buf = cl.Buffer(self.cl_context, MF.WRITE_ONLY, self.c.nbytes)
         self.p_buf = cl.Buffer(self.cl_context, MF.WRITE_ONLY, self.c.nbytes)
-        self.w_buf = cl.Buffer(self.cl_context, MF.WRITE_ONLY, self.c.nbytes)    
+        self.w_buf = cl.Buffer(self.cl_context, MF.WRITE_ONLY, self.c.nbytes)
 
         self.tmp_buf = cl.Buffer(self.cl_context, MF.WRITE_ONLY, self.c.nbytes)
         self.rhs_buf = cl.Buffer(self.cl_context, MF.WRITE_ONLY, self.b.nbytes)
 
-        self.program = get_cl_program(self.cl_context)       
+        self.program = get_cl_program(self.cl_context)
 
     @property
     def stats(self):
-        return self._stats            
+        return self._stats
 
     def reset(self):
         pass
@@ -395,10 +394,10 @@ class PathFollowingClSolver(Solver):
         # commit the total flows
         for n in range(0, self.num_nodes):
             _node = self.all_nodes[n]
-            _node.commit_all(node_flows[n, :])            
+            _node.commit_all(node_flows[n, :])
 
     def solve(self, model):
-        
+
         self._update_b(model)
         self._update_c()
 
@@ -409,10 +408,6 @@ class PathFollowingClSolver(Solver):
         a_buf = self.a_buf
         at_buf = self.at_buf
         norm_a_buf = self.norm_a_buf
-
-        print(self.a)
-        print(self.b)
-        print(self.c)
 
         print('Starting solve ...')
         t0 = time.perf_counter()
@@ -447,4 +442,5 @@ class PathFollowingClSolver(Solver):
         self.edge_flows_arr[...] = self.x[:self.num_edges, :]
         self._update_flows()
 
-solver_registry.append(PathFollowingClSolver)        
+
+solver_registry.append(PathFollowingClSolver)
