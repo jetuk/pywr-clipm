@@ -37,7 +37,18 @@ class SparseNormalMatrixClBuffer:
     indptr2: cl.Buffer
 
 
-def create_normal_matrix_buffer(cl_context: cl.Context, a: sparse.csr_matrix) -> SparseNormalMatrixClBuffer:
+@dataclass
+class SparseNormalMatrix:
+    rowptr: np.ndarray
+    diagptr: np.ndarray
+    colptr: np.ndarray
+    colindices: np.ndarray
+    indices: np.ndarray
+    indptr1: np.ndarray
+    indptr2: np.ndarray
+
+
+def create_sparse_normal_matric_indices(a: sparse.csr_matrix) -> SparseNormalMatrix:
     """Create and populate buffers in the OpenCL context for the normal matrix of the given sparse matrix."""
 
     row_indptrptr = [0]
@@ -80,25 +91,36 @@ def create_normal_matrix_buffer(cl_context: cl.Context, a: sparse.csr_matrix) ->
         row_indptrptr.append(len(col_indptrptr) - 1)
 
     assert len(indices) < 65536
-    # print(f'row_indptrptr: {len(row_indptrptr)}, col_indptrptr: {len(col_indptrptr)}, indices: {len(indices)},')
+    print(f'row_indptrptr: {len(row_indptrptr)}, col_indptrptr: {len(col_indptrptr)}, indices: {len(indices)},')
     # Create the CL buffers
-    row_indptrptr = cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR,
-                              hostbuf=np.array(row_indptrptr, dtype=np.uint32))
-    diag_indptrptr = cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR,
-                               hostbuf=np.array(diag_indptrptr, dtype=np.uint32))
-    col_indptrptr = cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR,
-                              hostbuf=np.array(col_indptrptr, dtype=np.uint32))
-    col_indices = cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=np.array(col_indices, dtype=np.uint32))
-    indices = cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=np.array(indices, dtype=np.uint32))
-    indptr_i = cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=np.array(indptr_i, dtype=np.uint32))
-    indptr_j = cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=np.array(indptr_j, dtype=np.uint32))
+    return SparseNormalMatrix(
+        np.array(row_indptrptr, dtype=np.uint32),
+        np.array(diag_indptrptr, dtype=np.uint32),
+        np.array(col_indptrptr, dtype=np.uint32),
+        np.array(col_indices, dtype=np.uint32),
+        np.array(indices, dtype=np.uint32),
+        np.array(indptr_i, dtype=np.uint32),
+        np.array(indptr_j, dtype=np.uint32),
+    )
+
+
+def create_sparse_normal_matrix_buffers(cl_context: cl.Context, indices: SparseNormalMatrix
+                                        ) -> SparseNormalMatrixClBuffer:
+
+    row_indptrptr = cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=indices.rowptr)
+    diag_indptrptr = cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=indices.diagptr)
+    col_indptrptr = cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=indices.colptr)
+    col_indices = cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=indices.colindices)
+    ind = cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=indices.indices)
+    indptr_i = cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=indices.indptr1)
+    indptr_j = cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=indices.indptr2)
 
     return SparseNormalMatrixClBuffer(
         row_indptrptr,
         diag_indptrptr,
         col_indptrptr,
         col_indices,
-        indices,
+        ind,
         indptr_i,
         indptr_j
     )
@@ -161,7 +183,8 @@ def normal_matrix_vector_product(
 
     # Copy the sparse matrix, it's normal indices  and vector to the context
     a_buf = create_sparse_matrix_buffer(cl_context, a)
-    norm_a_buf = create_normal_matrix_buffer(cl_context, a)
+    norm_indices = create_sparse_normal_matric_indices(a)
+    norm_a_buf = create_sparse_normal_matrix_buffers(cl_context, norm_indices)
     x_buf = cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=x)
     z_buf = cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=z)
     y_buf = cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=y)
@@ -197,7 +220,8 @@ def normal_conjugate_gradient_solve(
 
     # Copy the sparse matrix, it's normal indices  and vector to the context
     a_buf = create_sparse_matrix_buffer(cl_context, a)
-    norm_a_buf = create_normal_matrix_buffer(cl_context, a)
+    norm_indices = create_sparse_normal_matric_indices(a)
+    norm_a_buf = create_sparse_normal_matrix_buffers(cl_context, norm_indices)
     x_buf = cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=x)
     z_buf = cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=z)
     y_buf = cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=y)

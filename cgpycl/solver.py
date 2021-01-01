@@ -7,7 +7,8 @@ from typing import List
 from dataclasses import dataclass
 from collections import defaultdict
 import pyopencl as cl
-from .sparse import create_normal_matrix_buffer, create_sparse_matrix_buffer
+from .sparse import create_sparse_normal_matrix_buffers, create_sparse_normal_matric_indices,\
+    create_sparse_matrix_buffer
 from .cl import get_cl_program
 
 
@@ -287,7 +288,9 @@ class PathFollowingClSolver(Solver):
         # Copy the sparse matrix, it's normal indices  and vector to the context
         self.a_buf = create_sparse_matrix_buffer(self.cl_context, self.a)
         self.at_buf = create_sparse_matrix_buffer(self.cl_context, self.a.T.tocsr())
-        self.norm_a_buf = create_normal_matrix_buffer(self.cl_context, self.a)
+
+        norm_indices = create_sparse_normal_matric_indices(self.a)
+        self.norm_a_buf = create_sparse_normal_matrix_buffers(self.cl_context, norm_indices)
 
         self.b_buf = cl.Buffer(self.cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=self.b)
         self.c_buf = cl.Buffer(self.cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=self.c)

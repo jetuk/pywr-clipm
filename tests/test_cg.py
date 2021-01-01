@@ -2,8 +2,8 @@ import pyopencl as cl
 from scipy import sparse
 import numpy as np
 from cgpycl.sparse import create_sparse_matrix_buffer, SparseMatrixClBuffer, sparse_matrix_vector_product, \
-    SparseNormalMatrixClBuffer, create_normal_matrix_buffer, normal_matrix_vector_product, \
-    normal_conjugate_gradient_solve, normal_equation_rhs
+    SparseNormalMatrixClBuffer, create_sparse_normal_matric_indices, create_sparse_normal_matrix_buffers, \
+    normal_matrix_vector_product, normal_conjugate_gradient_solve, normal_equation_rhs
 
 
 def test_create_sparse_matrix_buffer(cl_context):
@@ -35,7 +35,8 @@ def test_create_normal_matrix_buffer(cl_context: cl.Context):
     n = 100
     a = sparse.random(n, n, 0.01, format='csr')
 
-    cl_buf = create_normal_matrix_buffer(cl_context, a)
+    norm_indices = create_sparse_normal_matric_indices(a)
+    cl_buf = create_sparse_normal_matrix_buffers(cl_context, norm_indices)
     assert isinstance(cl_buf, SparseNormalMatrixClBuffer)
 
 
