@@ -1,12 +1,11 @@
 from pywr.core import ModelStructureError
 from pywr._core import BaseInput, BaseOutput, BaseLink, Storage, VirtualStorage, AggregatedNode
 from pywr.solvers import Solver, solver_registry
-from scipy.sparse import coo_matrix, csr_matrix, vstack, hstack, eye
+from scipy.sparse import coo_matrix
 import numpy as np
 from typing import List
 from dataclasses import dataclass
 from collections import defaultdict
-import time
 import pyopencl as cl
 from .sparse import create_normal_matrix_buffer, create_sparse_matrix_buffer
 from .cl import get_cl_program
@@ -155,6 +154,7 @@ class PathFollowingClSolver(Solver):
                 continue
             node_data[start_node].out_edges.append(row)
             node_data[end_node].in_edges.append(row)
+            # print(row, start_node, end_node)
 
         # Apply nodal flow constraints
         self.row_map_ineq_non_storage = {}
@@ -169,7 +169,8 @@ class PathFollowingClSolver(Solver):
             # Differentiate betwen the node type.
             # Input and other nodes use the outgoing edge flows to apply the flow constraint on
             # This requires the mass balance constraints to ensure the inflow and outflow are equal
-            # The Output nodes, in contrast, apply the constraint to the incoming flow (because there is no out going flow)
+            # The Output nodes, in contrast, apply the constraint to the incoming flow (because there is no out
+            # going flow)
             d = node_data[some_node]
 
             if isinstance(some_node, BaseInput):
@@ -193,6 +194,7 @@ class PathFollowingClSolver(Solver):
                 # Add an in-equality constraint for the max flow
                 row = lp_ineq.add_row(cols, [1.0 for _ in cols])
                 self.row_map_ineq_non_storage[some_node] = row
+                # print(some_node, row, cols)
 
             # Add constraint for cross-domain routes
             # i.e. those from a demand to a supply
@@ -201,7 +203,7 @@ class PathFollowingClSolver(Solver):
 
                 row = lp_eq.add_row(
                     cols + [c for c, _ in col_vals],
-                    [-1.0 for _ in cols] + [1./v for _, v in col_vals]
+                    [-1.0 for _ in cols] + [1. / v for _, v in col_vals]
                 )
 
         # Add mass balance constraints
@@ -240,13 +242,17 @@ class PathFollowingClSolver(Solver):
         nscenarios = len(model.scenarios.combinations)
 
         self.num_inequality_constraints = lp_ineq.nrows
-        self.a = vstack([
-            coo_matrix((lp_ineq.data, (lp_ineq.row_indices, lp_ineq.col_indices))),
-            coo_matrix((lp_eq.data, (lp_eq.row_indices, lp_eq.col_indices))),
-        ]).tocsr()
+
+        self.a = coo_matrix(
+            (lp_ineq.data + lp_eq.data,
+             (
+                 lp_ineq.row_indices + [r + lp_ineq.nrows for r in lp_eq.row_indices],
+                 lp_ineq.col_indices + lp_eq.col_indices
+             ))
+        ).tocsr()
 
         # Add slacks to the inequality section
-        self.a = hstack([self.a, eye(self.a.shape[0], lp_ineq.nrows)]).tocsr()
+        # self.a = hstack([self.a, eye(self.a.shape[0], lp_ineq.nrows)]).tocsr()
 
         self.b = np.zeros((self.a.shape[0], nscenarios))
         self.c = np.zeros((self.a.shape[1], nscenarios))
@@ -290,15 +296,19 @@ class PathFollowingClSolver(Solver):
         self.x_buf = cl.Buffer(self.cl_context, MF.READ_WRITE, self.c.nbytes)
         self.z_buf = cl.Buffer(self.cl_context, MF.READ_WRITE, self.c.nbytes)
         self.y_buf = cl.Buffer(self.cl_context, MF.READ_WRITE, self.b.nbytes)
+        # TODO reduce the size of this
+        self.w_buf = cl.Buffer(self.cl_context, MF.READ_WRITE, self.b.nbytes)
 
         self.dx_buf = cl.Buffer(self.cl_context, MF.READ_WRITE, self.c.nbytes)
         self.dz_buf = cl.Buffer(self.cl_context, MF.READ_WRITE, self.c.nbytes)
         self.dy_buf = cl.Buffer(self.cl_context, MF.READ_WRITE, self.b.nbytes)
+        # TODO reduce the size of this
+        self.dw_buf = cl.Buffer(self.cl_context, MF.READ_WRITE, self.b.nbytes)
 
         # Work arrays
-        self.r_buf = cl.Buffer(self.cl_context, MF.WRITE_ONLY, self.c.nbytes)
-        self.p_buf = cl.Buffer(self.cl_context, MF.WRITE_ONLY, self.c.nbytes)
-        self.w_buf = cl.Buffer(self.cl_context, MF.WRITE_ONLY, self.c.nbytes)
+        self.r_buf = cl.Buffer(self.cl_context, MF.WRITE_ONLY, self.b.nbytes)
+        self.p_buf = cl.Buffer(self.cl_context, MF.WRITE_ONLY, self.b.nbytes)
+        self.s_buf = cl.Buffer(self.cl_context, MF.WRITE_ONLY, self.b.nbytes)
 
         self.tmp_buf = cl.Buffer(self.cl_context, MF.WRITE_ONLY, self.c.nbytes)
         self.rhs_buf = cl.Buffer(self.cl_context, MF.WRITE_ONLY, self.b.nbytes)
@@ -330,7 +340,7 @@ class PathFollowingClSolver(Solver):
             if data.is_link:
                 cost /= 2
 
-            #print(_node, cost, data.is_link, data.in_edges, data.out_edges)
+            # print(_node, cost, data.is_link, data.in_edges, data.out_edges)
 
             for col in data.in_edges:
                 edge_costs[col, :] += cost
@@ -367,8 +377,8 @@ class PathFollowingClSolver(Solver):
 
             # change in storage cannot be more than the current volume or
             # result in maximum volume being exceeded
-            lb = avail_volume/timestep.days
-            ub = (max_volume - volume)/timestep.days
+            lb = avail_volume / timestep.days
+            ub = (max_volume - volume) / timestep.days
             ub[ub < 0.0] = 0.0
 
             b[row1, :] = ub
@@ -401,6 +411,11 @@ class PathFollowingClSolver(Solver):
         self._update_b(model)
         self._update_c()
 
+        # print(self.a.shape, self.num_inequality_constraints)
+        # print('a', self.a)
+        # print('b', self.b)
+        # print('c', self.c)
+
         # TODO can b be copied to device while c is updated on host?
         cl.enqueue_copy(self.cl_queue, self.b_buf, self.b)
         cl.enqueue_copy(self.cl_queue, self.c_buf, self.c)
@@ -410,7 +425,7 @@ class PathFollowingClSolver(Solver):
         norm_a_buf = self.norm_a_buf
 
         print('Starting solve ...')
-        t0 = time.perf_counter()
+
         self.program.normal_eqn_solve(
             self.cl_queue, (self.b.shape[1],), None,
             a_buf.indptr, a_buf.indices, a_buf.data, a_buf.nrows,
@@ -419,22 +434,26 @@ class PathFollowingClSolver(Solver):
             norm_a_buf.colindices, norm_a_buf.indices, norm_a_buf.indptr1, norm_a_buf.indptr2,
             self.x_buf,
             self.z_buf,
+            self.y_buf,
+            self.w_buf,
+            np.uint32(self.num_inequality_constraints),
             self.b_buf,
             self.c_buf,
-            self.y_buf,
-            np.float64(0.1),
+            np.float64(0.02),
             self.dx_buf,
             self.dz_buf,
             self.dy_buf,
+            self.dw_buf,
             self.r_buf,
             self.p_buf,
-            self.w_buf,
+            self.s_buf,
             self.tmp_buf,
             self.rhs_buf,
-            np.int32(1)
+            np.uint32(1)
         )
 
         cl.enqueue_copy(self.cl_queue, self.x, self.x_buf)
+        # print('x', self.x)
 
         if np.any(np.isnan(self.x)):
             raise RuntimeError('NaNs in solution!')
