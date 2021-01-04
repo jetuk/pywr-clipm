@@ -17,8 +17,8 @@ setuptools.setup(
     },
     install_requires=[
         "pyopencl",
+        "numpy",
         "scikit-sparse",
-        "numpy"
     ],
     classifiers=[
         "Programming Language :: Python :: 3",
