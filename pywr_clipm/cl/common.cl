@@ -1,3 +1,9 @@
+/* Common OpenCL functions for path following interior point method.
+ *
+ *
+ */
+
+
 #pragma OPENCL EXTENSION cl_khr_fp64 : enable
 #define matrix(N) __constant uint* N##indptr, __constant uint* N##indices, __constant double* N##data, uint N##size
 #define write_matrix(N) __constant uint* N##indptr, __constant uint* N##indices, __global double* N##data
@@ -7,7 +13,7 @@ __kernel void matrix_vector_product(
     __global double* x,
     __global double* out
 ) {
-    /* Compute y = Ax
+    /* Compute out = Ax
      *
      */
     uint gid = get_global_id(0);
@@ -35,7 +41,7 @@ __kernel void matrix_vector_product(
 }
 
 double dot_product(__global double* x, __global double* y, int N) {
-    /* dot product of x and y */
+    /* Return dot product of x and y */
     uint gid = get_global_id(0);
     uint gsize = get_global_size(0);
     uint row;
@@ -45,15 +51,12 @@ double dot_product(__global double* x, __global double* y, int N) {
     for (row=0; row<N; row++) {
         row_gid = row*gsize + gid;
         val += x[row_gid]*y[row_gid];
-        // if (gid == 0) {
-        //     printf("dot prod %d:, %f %f %f\n", row_gid, x[row_gid], y[row_gid], val);
-        // }
     }
     return val;
 }
 
 void vector_copy(__global double* x, __global double* y, int N) {
-    /* y = x */
+    /* Copy vector x in to y */
     uint gid = get_global_id(0);
     uint gsize = get_global_size(0);
     uint row;
@@ -61,10 +64,7 @@ void vector_copy(__global double* x, __global double* y, int N) {
 
     for (row=0; row<N; row++) {
         row_gid = row*gsize + gid;
-        y[row_gid] = x[row_gid];
-        // if (gid == 0) {
-        //     printf("copy %d: %f %f\n", row_gid, x[row_gid], y[row_gid]);
-        // }        
+        y[row_gid] = x[row_gid];     
     }
 }
 

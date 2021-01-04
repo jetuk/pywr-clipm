@@ -15,6 +15,11 @@ setuptools.setup(
     package_data={
         "": ["*.cl"]
     },
+    install_reqiures=[
+        "pyopencl",
+        "scikit-sparse",
+        "numpy"
+    ],
     classifiers=[
         "Programming Language :: Python :: 3",
         "Operating System :: OS Independent",
