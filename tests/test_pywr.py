@@ -4,10 +4,15 @@ from pywr.model import Model
 from pywr.core import Scenario
 from pywr.nodes import Input, Link, Output
 from numpy.testing import assert_allclose
-from cgpycl.solver import PathFollowingClSolver  # noqa
+from cgpycl.solver import PathFollowingIndirectClSolver  # noqa
 import pytest
 
-os.environ['PYWR_SOLVER'] = 'path-following-cl'
+# os.environ['PYWR_SOLVER'] = 'path-following-indirect-cl'
+
+
+@pytest.fixture(scope="module", params=['path-following-indirect-cl', 'path-following-direct-cl'])
+def pywr_solver(request):
+    os.environ['PYWR_SOLVER'] = request.param
 
 
 def load_model(filename=None, data=None, solver=None):
@@ -24,7 +29,7 @@ def load_model(filename=None, data=None, solver=None):
     return model
 
 
-def test_run_simple1():
+def test_run_simple1(pywr_solver):
     '''Test the most basic model possible'''
     # parse the JSON into a model
     model = load_model('simple1.json')
@@ -45,7 +50,7 @@ def test_run_simple1():
 
 
 @pytest.mark.parametrize('size', [1, 32, 64, 128])
-def test_transfer(size):
+def test_transfer(pywr_solver, size):
     """Test a simple transfer model. """
 
     model = Model()
@@ -81,7 +86,7 @@ def test_transfer(size):
 
 
 @pytest.mark.parametrize('size', [1, 32, 64, 128])
-def test_transfer2(size):
+def test_transfer2(pywr_solver, size):
     """Test a simple transfer model. """
 
     model = Model()

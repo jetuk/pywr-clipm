@@ -1,14 +1,16 @@
 from pywr.core import ModelStructureError
 from pywr._core import BaseInput, BaseOutput, BaseLink, Storage, VirtualStorage, AggregatedNode
 from pywr.solvers import Solver, solver_registry
-from scipy.sparse import coo_matrix
+from scipy.sparse import coo_matrix, linalg, hstack, eye
+import time
 import numpy as np
 from typing import List
 from dataclasses import dataclass
 from collections import defaultdict
 import pyopencl as cl
-from .sparse import create_sparse_normal_matrix_buffers, create_sparse_normal_matric_indices,\
-    create_sparse_matrix_buffer
+from .sparse import create_sparse_normal_matrix_buffers, create_sparse_normal_matrix_indices,\
+    create_sparse_matrix_buffer, create_sparse_normal_matrix_cholesky_indices, \
+    create_sparse_normal_matrix_cholesky_buffers
 from .cl import get_cl_program
 
 
@@ -75,8 +77,7 @@ class LP:
         return n
 
 
-class PathFollowingClSolver(Solver):
-    name = 'path-following-cl'
+class BasePathFollowingClSolver(Solver):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -253,7 +254,17 @@ class PathFollowingClSolver(Solver):
         ).tocsr()
 
         # Add slacks to the inequality section
-        # self.a = hstack([self.a, eye(self.a.shape[0], lp_ineq.nrows)]).tocsr()
+        self.a = hstack([self.a, eye(self.a.shape[0], lp_ineq.nrows)]).tocsr()
+
+        from sksparse import cholmod
+
+        factors = cholmod.cholesky_AAt(self.a, ordering_method='natural')
+        L, D = factors.L_D()
+        print('A', self.a.getnnz())
+        print('L', L.getnnz())
+        print('D', D.getnnz())
+
+        # assert False
 
         self.b = np.zeros((self.a.shape[0], nscenarios))
         self.c = np.zeros((self.a.shape[1], nscenarios))
@@ -282,41 +293,7 @@ class PathFollowingClSolver(Solver):
         })
 
     def _create_cl_buffers(self):
-        """Create the OpenCL buffers for the solver. """
-        MF = cl.mem_flags
-
-        # Copy the sparse matrix, it's normal indices  and vector to the context
-        self.a_buf = create_sparse_matrix_buffer(self.cl_context, self.a)
-        self.at_buf = create_sparse_matrix_buffer(self.cl_context, self.a.T.tocsr())
-
-        norm_indices = create_sparse_normal_matric_indices(self.a)
-        self.norm_a_buf = create_sparse_normal_matrix_buffers(self.cl_context, norm_indices)
-
-        self.b_buf = cl.Buffer(self.cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=self.b)
-        self.c_buf = cl.Buffer(self.cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=self.c)
-
-        self.x = np.zeros_like(self.c)
-        self.x_buf = cl.Buffer(self.cl_context, MF.READ_WRITE, self.c.nbytes)
-        self.z_buf = cl.Buffer(self.cl_context, MF.READ_WRITE, self.c.nbytes)
-        self.y_buf = cl.Buffer(self.cl_context, MF.READ_WRITE, self.b.nbytes)
-        # TODO reduce the size of this
-        self.w_buf = cl.Buffer(self.cl_context, MF.READ_WRITE, self.b.nbytes)
-
-        self.dx_buf = cl.Buffer(self.cl_context, MF.READ_WRITE, self.c.nbytes)
-        self.dz_buf = cl.Buffer(self.cl_context, MF.READ_WRITE, self.c.nbytes)
-        self.dy_buf = cl.Buffer(self.cl_context, MF.READ_WRITE, self.b.nbytes)
-        # TODO reduce the size of this
-        self.dw_buf = cl.Buffer(self.cl_context, MF.READ_WRITE, self.b.nbytes)
-
-        # Work arrays
-        self.r_buf = cl.Buffer(self.cl_context, MF.WRITE_ONLY, self.b.nbytes)
-        self.p_buf = cl.Buffer(self.cl_context, MF.WRITE_ONLY, self.b.nbytes)
-        self.s_buf = cl.Buffer(self.cl_context, MF.WRITE_ONLY, self.b.nbytes)
-
-        self.tmp_buf = cl.Buffer(self.cl_context, MF.WRITE_ONLY, self.c.nbytes)
-        self.rhs_buf = cl.Buffer(self.cl_context, MF.WRITE_ONLY, self.b.nbytes)
-
-        self.program = get_cl_program(self.cl_context)
+        raise NotImplementedError()
 
     @property
     def stats(self):
@@ -363,11 +340,13 @@ class PathFollowingClSolver(Solver):
         # Ineqality constraints come first with zero offset
         for node, row in self.row_map_ineq_non_storage.items():
             node.get_all_max_flow(out=b[row, :])
+            # print(node, np.max(np.abs(b[row, :])), node.max_flow)
 
         # ... then equality constraints
         offset = self.num_inequality_constraints
         for node, row in self.row_map_eq_non_storage.items():
             node.get_all_max_flow(out=b[offset + row, :])
+            # print(node, np.max(np.abs(b[offset + row, :])))
 
         # Non-storage constraints
         for storage, (row1, row2) in self.row_map_ineq_storage.items():
@@ -409,6 +388,47 @@ class PathFollowingClSolver(Solver):
             _node = self.all_nodes[n]
             _node.commit_all(node_flows[n, :])
 
+
+class PathFollowingIndirectClSolver(BasePathFollowingClSolver):
+    name = 'path-following-indirect-cl'
+
+    def _create_cl_buffers(self):
+        """Create the OpenCL buffers for the solver. """
+        MF = cl.mem_flags
+
+        # Copy the sparse matrix, it's normal indices  and vector to the context
+        self.a_buf = create_sparse_matrix_buffer(self.cl_context, self.a)
+        self.at_buf = create_sparse_matrix_buffer(self.cl_context, self.a.T.tocsr())
+
+        norm_indices = create_sparse_normal_matrix_indices(self.a)
+        self.norm_a_buf = create_sparse_normal_matrix_buffers(self.cl_context, norm_indices)
+
+        self.b_buf = cl.Buffer(self.cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=self.b)
+        self.c_buf = cl.Buffer(self.cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=self.c)
+
+        self.x = np.zeros_like(self.c)
+        self.x_buf = cl.Buffer(self.cl_context, MF.READ_WRITE, self.c.nbytes)
+        self.z_buf = cl.Buffer(self.cl_context, MF.READ_WRITE, self.c.nbytes)
+        self.y_buf = cl.Buffer(self.cl_context, MF.READ_WRITE, self.b.nbytes)
+        # TODO reduce the size of this
+        self.w_buf = cl.Buffer(self.cl_context, MF.READ_WRITE, self.b.nbytes)
+
+        self.dx_buf = cl.Buffer(self.cl_context, MF.READ_WRITE, self.c.nbytes)
+        self.dz_buf = cl.Buffer(self.cl_context, MF.READ_WRITE, self.c.nbytes)
+        self.dy_buf = cl.Buffer(self.cl_context, MF.READ_WRITE, self.b.nbytes)
+        # TODO reduce the size of this
+        self.dw_buf = cl.Buffer(self.cl_context, MF.READ_WRITE, self.b.nbytes)
+
+        # Work arrays
+        self.r_buf = cl.Buffer(self.cl_context, MF.WRITE_ONLY, self.b.nbytes)
+        self.p_buf = cl.Buffer(self.cl_context, MF.WRITE_ONLY, self.b.nbytes)
+        self.s_buf = cl.Buffer(self.cl_context, MF.WRITE_ONLY, self.b.nbytes)
+
+        self.tmp_buf = cl.Buffer(self.cl_context, MF.WRITE_ONLY, self.c.nbytes)
+        self.rhs_buf = cl.Buffer(self.cl_context, MF.WRITE_ONLY, self.b.nbytes)
+
+        self.program = get_cl_program(self.cl_context)
+
     def solve(self, model):
 
         self._update_b(model)
@@ -428,7 +448,7 @@ class PathFollowingClSolver(Solver):
         norm_a_buf = self.norm_a_buf
 
         print('Starting solve ...')
-
+        t0 = time.perf_counter()
         self.program.normal_eqn_solve(
             self.cl_queue, (self.b.shape[1],), None,
             a_buf.indptr, a_buf.indices, a_buf.data, a_buf.nrows,
@@ -457,6 +477,7 @@ class PathFollowingClSolver(Solver):
 
         cl.enqueue_copy(self.cl_queue, self.x, self.x_buf)
         # print('x', self.x)
+        print(f'Solve completed in {time.perf_counter() - t0}s')
 
         if np.any(np.isnan(self.x)):
             raise RuntimeError('NaNs in solution!')
@@ -465,4 +486,129 @@ class PathFollowingClSolver(Solver):
         self._update_flows()
 
 
-solver_registry.append(PathFollowingClSolver)
+solver_registry.append(PathFollowingIndirectClSolver)
+
+
+class PathFollowingDirectClSolver(BasePathFollowingClSolver):
+    name = 'path-following-direct-cl'
+
+    def _create_cl_buffers(self):
+        """Create the OpenCL buffers for the solver. """
+        MF = cl.mem_flags
+
+        # Copy the sparse matrix, it's normal indices  and vector to the context
+        self.a_buf = create_sparse_matrix_buffer(self.cl_context, self.a)
+        self.at_buf = create_sparse_matrix_buffer(self.cl_context, self.a.T.tocsr())
+
+        cholesky_indices = create_sparse_normal_matrix_cholesky_indices(self.a)
+        self.cholesky_buf = create_sparse_normal_matrix_cholesky_buffers(self.cl_context, cholesky_indices)
+
+        gsize = self.b.shape[1]
+        self.ldata = np.zeros((cholesky_indices.lindices.shape[0], gsize))
+        print(self.ldata.shape)
+        self.ldata_buf = cl.Buffer(self.cl_context, MF.WRITE_ONLY, self.ldata.nbytes)
+
+        self.b_buf = cl.Buffer(self.cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=self.b)
+        self.c_buf = cl.Buffer(self.cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=self.c)
+
+        self.x = np.zeros_like(self.c)
+        self.x_buf = cl.Buffer(self.cl_context, MF.READ_WRITE, self.c.nbytes)
+        self.z_buf = cl.Buffer(self.cl_context, MF.READ_WRITE, self.c.nbytes)
+        self.y_buf = cl.Buffer(self.cl_context, MF.READ_WRITE, self.b.nbytes)
+        # TODO reduce the size of this
+        self.w_buf = cl.Buffer(self.cl_context, MF.READ_WRITE, self.b.nbytes)
+
+        self.dx_buf = cl.Buffer(self.cl_context, MF.READ_WRITE, self.c.nbytes)
+        self.dz_buf = cl.Buffer(self.cl_context, MF.READ_WRITE, self.c.nbytes)
+        self.dy_buf = cl.Buffer(self.cl_context, MF.READ_WRITE, self.b.nbytes)
+        # TODO reduce the size of this
+        self.dw_buf = cl.Buffer(self.cl_context, MF.READ_WRITE, self.b.nbytes)
+
+        # Work arrays
+        self.tmp_buf = cl.Buffer(self.cl_context, MF.WRITE_ONLY, self.c.nbytes)
+        self.rhs_buf = cl.Buffer(self.cl_context, MF.WRITE_ONLY, self.b.nbytes)
+
+        self.status = np.zeros(gsize, dtype=np.uint32)
+        self.status_buf = cl.Buffer(self.cl_context, MF.WRITE_ONLY, self.status.nbytes)
+
+        self.program = get_cl_program(self.cl_context, filename='path_following_direct.cl')
+
+    def solve(self, model):
+
+        self._update_b(model)
+        self._update_c()
+
+        # print(self.a.shape, self.num_inequality_constraints)
+        # print('a', self.a)
+        # print('b', self.b)
+        # print('c', self.c)
+
+        # TODO can b be copied to device while c is updated on host?
+        cl.enqueue_copy(self.cl_queue, self.b_buf, self.b)
+        cl.enqueue_copy(self.cl_queue, self.c_buf, self.c)
+
+        a_buf = self.a_buf
+        at_buf = self.at_buf
+        cholesky_buf = self.cholesky_buf
+
+        print('Starting solve ...')
+        t0 = time.perf_counter()
+
+        self.program.normal_eqn_init(
+            self.cl_queue, (self.b.shape[1],), None,
+            a_buf.nrows,
+            at_buf.nrows,
+            self.x_buf,
+            self.z_buf,
+            self.y_buf,
+            self.w_buf,
+            np.uint32(self.num_inequality_constraints),
+        )
+
+        for iter in range(200):
+            self.program.normal_eqn_step(
+                self.cl_queue, (self.b.shape[1],), None,
+                a_buf.indptr, a_buf.indices, a_buf.data, a_buf.nrows,
+                at_buf.indptr, at_buf.indices, at_buf.data, at_buf.nrows,
+                cholesky_buf.anorm_indptr, cholesky_buf.anorm_indptr_i, cholesky_buf.anorm_indptr_j,
+                cholesky_buf.anorm_indices,
+                cholesky_buf.ldecomp_indptr, cholesky_buf.ldecomp_indptr_i, cholesky_buf.ldecomp_indptr_j,
+                cholesky_buf.lindptr, cholesky_buf.ldiag_indptr, cholesky_buf.lindices,
+                cholesky_buf.ltindptr, cholesky_buf.ltindices, cholesky_buf.ltmap,
+                self.ldata_buf,
+                self.x_buf,
+                self.z_buf,
+                self.y_buf,
+                self.w_buf,
+                np.uint32(self.num_inequality_constraints),
+                self.b_buf,
+                self.c_buf,
+                np.float64(0.02),
+                self.dx_buf,
+                self.dz_buf,
+                self.dy_buf,
+                self.dw_buf,
+                self.tmp_buf,
+                self.rhs_buf,
+                self.status_buf,
+            )
+            cl.enqueue_copy(self.cl_queue, self.status, self.status_buf)
+            if np.all(self.status == 0):
+                break
+        if not np.all(self.status == 0):
+            print(self.status)
+            print(np.sum(self.status))
+            print(np.where(self.status == 1))
+            raise RuntimeError('Failed to solve!')
+
+        cl.enqueue_copy(self.cl_queue, self.x, self.x_buf)
+        # print('x', self.x)
+        print(f'Solve completed in {time.perf_counter() - t0}s')
+
+        if np.any(np.isnan(self.x)):
+            raise RuntimeError('NaNs in solution!')
+
+        self.edge_flows_arr[...] = self.x[:self.num_edges, :]
+        self._update_flows()
+
+solver_registry.append(PathFollowingDirectClSolver)

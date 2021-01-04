@@ -3,6 +3,7 @@ from scipy import sparse
 import numpy as np
 from dataclasses import dataclass
 import time
+from typing import Tuple
 from .cl import get_cl_program
 from . import sparse_gen
 
@@ -48,7 +49,7 @@ class SparseNormalMatrix:
     indptr2: np.ndarray
 
 
-def create_sparse_normal_matric_indices(a: sparse.csr_matrix) -> SparseNormalMatrix:
+def create_sparse_normal_matrix_indices(a: sparse.csr_matrix) -> SparseNormalMatrix:
     """Create and populate buffers in the OpenCL context for the normal matrix of the given sparse matrix."""
 
     row_indptrptr = [0]
@@ -126,6 +127,209 @@ def create_sparse_normal_matrix_buffers(cl_context: cl.Context, indices: SparseN
     )
 
 
+@dataclass
+class SparseNormalCholeskyIndices:
+    anorm_indptr: np.ndarray
+    anorm_indptr_i: np.ndarray
+    anorm_indptr_j: np.ndarray
+    anorm_indices: np.ndarray
+    ldecomp_indptr: np.ndarray
+    ldecomp_indptr_i: np.ndarray
+    ldecomp_indptr_j: np.ndarray
+    lindptr: np.ndarray
+    ldiag_indptr: np.ndarray
+    lindices: np.ndarray
+    ltindptr: np.ndarray
+    ltindices: np.ndarray
+    ltmap: np.ndarray
+
+
+def create_sparse_normal_matrix_cholesky_indices(a: sparse.csr_matrix) -> SparseNormalCholeskyIndices:
+    """Compute the calculation indices for the LDL decomposition of A*AT"""
+
+    a_indptr = [0]
+    a_indptr_i = []
+    a_indptr_j = []
+    a_indices = []
+    l_indptr = [0]
+    l_indptr_i = []
+    l_indptr_j = []
+    # Entries of the L matrix
+    indptr = [0]
+    diag_indptr = []
+    indices = []
+
+    for i in range(a.shape[0]):
+        for j in range(i+1):
+            # Search for matching indices in the a matrix for element AAT[i, j]
+            ii = a.indptr[i]
+            ii_max = a.indptr[i + 1]
+            jj = a.indptr[j]
+            jj_max = a.indptr[j + 1]
+            non_zero = False
+
+            while (ii < ii_max) and (jj < jj_max):
+                ik = a.indices[ii]
+                jk = a.indices[jj]
+
+                if ik == jk:
+                    a_indptr_i.append(ii)
+                    a_indptr_j.append(jj)
+                    a_indices.append(ik)
+                    non_zero = True
+                    ii += 1
+                    jj += 1
+                elif ik < jk:
+                    ii += 1
+                else:
+                    jj += 1
+
+            # Now search for matching indices for the L[i, k]*L[j, k]
+            ii = indptr[i]
+            ii_max = len(indices)
+            jj = indptr[j]
+            if i == j:
+                jj_max = ii_max
+            else:
+                jj_max = indptr[j + 1]
+
+            while (ii < ii_max) and (jj < jj_max):
+                ik = indices[ii]
+                jk = indices[jj]
+
+                if ik == jk:
+                    l_indptr_i.append(ii)
+                    l_indptr_j.append(jj)
+                    non_zero = True
+                    ii += 1
+                    jj += 1
+                elif ik < jk:
+                    ii += 1
+                else:
+                    jj += 1
+
+            if non_zero:
+                a_indptr.append(len(a_indptr_i))
+                l_indptr.append(len(l_indptr_i))
+                indices.append(j)
+            if i == j:
+                diag_indptr.append(len(indices) - 1)
+
+        indptr.append(len(indices))
+
+    dtype = np.uint32
+    # Compute transpose mapping
+    l = sparse.csr_matrix((np.ones(len(indices)), indices, indptr))
+    lt = l.transpose().tocsr()
+    ltmap = np.argsort(l.indices, kind='mergesort').astype(dtype)
+
+    return SparseNormalCholeskyIndices(
+        np.array(a_indptr, dtype=dtype),
+        np.array(a_indptr_i, dtype=dtype),
+        np.array(a_indptr_j, dtype=dtype),
+        np.array(a_indices, dtype=dtype),
+        np.array(l_indptr, dtype=dtype),
+        np.array(l_indptr_i, dtype=dtype),
+        np.array(l_indptr_j, dtype=dtype),
+        np.array(indptr, dtype=dtype),
+        np.array(diag_indptr, dtype=dtype),
+        np.array(indices, dtype=dtype),
+        lt.indptr.astype(dtype),
+        lt.indices.astype(dtype),
+        ltmap
+    )
+
+
+@dataclass
+class SparseNormalCholeskyClBuffers:
+    anorm_indptr: cl.Buffer
+    anorm_indptr_i: cl.Buffer
+    anorm_indptr_j: cl.Buffer
+    anorm_indices: cl.Buffer
+    ldecomp_indptr: cl.Buffer
+    ldecomp_indptr_i: cl.Buffer
+    ldecomp_indptr_j: cl.Buffer
+    lindptr: cl.Buffer
+    ldiag_indptr: cl.Buffer
+    lindices: cl.Buffer
+    ltindptr:  cl.Buffer
+    ltindices:  cl.Buffer
+    ltmap:  cl.Buffer
+
+
+def create_sparse_normal_matrix_cholesky_buffers(cl_context: cl.Context,
+                                                 indices: SparseNormalCholeskyIndices) -> SparseNormalCholeskyClBuffers:
+
+    return SparseNormalCholeskyClBuffers(
+        cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=indices.anorm_indptr),
+        cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=indices.anorm_indptr_i),
+        cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=indices.anorm_indptr_j),
+        cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=indices.anorm_indices),
+        cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=indices.ldecomp_indptr),
+        cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=indices.ldecomp_indptr_i),
+        cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=indices.ldecomp_indptr_j),
+        cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=indices.lindptr),
+        cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=indices.ldiag_indptr),
+        cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=indices.lindices),
+        cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=indices.ltindptr),
+        cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=indices.ltindices),
+        cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=indices.ltmap),
+    )
+
+
+def sparse_normal_matrix_cholesky_decomposition(
+        cl_context: cl.Context, cl_queue: cl.CommandQueue, a: sparse.csr_matrix,
+        x: np.ndarray, z: np.ndarray, y: np.ndarray, w: np.ndarray
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+
+    a_buf = create_sparse_matrix_buffer(cl_context, a)
+    indices = create_sparse_normal_matrix_cholesky_indices(a)
+    decomp_buf = create_sparse_normal_matrix_cholesky_buffers(cl_context, indices)
+
+    x_buf = cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=x)
+    z_buf = cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=z)
+    y_buf = cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=y)
+    w_buf = cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=w)
+
+    gsize = x.shape[1]
+
+    # Create a local vector and context buffer for the result
+    ldata = np.zeros((indices.lindices.shape[0], gsize))
+    ldata_buf = cl.Buffer(cl_context, MF.WRITE_ONLY, ldata.nbytes)
+
+    # Get the cl program
+    program = get_cl_program(cl_context, filename='path_following_direct.cl')
+    t0 = time.perf_counter()
+    evt = program.normal_matrix_cholesky_decomposition(
+        cl_queue,
+        (gsize,),
+        None,
+        a_buf.data,
+        a_buf.nrows,
+        decomp_buf.anorm_indptr,
+        decomp_buf.anorm_indptr_i,
+        decomp_buf.anorm_indptr_j,
+        decomp_buf.anorm_indices,
+        decomp_buf.ldecomp_indptr,
+        decomp_buf.ldecomp_indptr_i,
+        decomp_buf.ldecomp_indptr_j,
+        x_buf,
+        z_buf,
+        y_buf,
+        w_buf,
+        np.uint32(w.shape[0]),
+        decomp_buf.lindptr,
+        decomp_buf.ldiag_indptr,
+        decomp_buf.lindices,
+        ldata_buf
+    )
+    evt.wait()
+    print(f'matrix-vector product took: {time.perf_counter() - t0}s')
+    cl.enqueue_copy(cl_queue, ldata, ldata_buf)
+
+    return ldata, indices.lindices, indices.lindptr
+
+
 def sparse_matrix_vector_product(cl_context: cl.Context, cl_queue: cl.CommandQueue,
                                  a: sparse.csr_matrix, b: np.ndarray) -> np.ndarray:
     """Compute the matrix-vector product of A and b.
@@ -183,7 +387,7 @@ def normal_matrix_vector_product(
 
     # Copy the sparse matrix, it's normal indices  and vector to the context
     a_buf = create_sparse_matrix_buffer(cl_context, a)
-    norm_indices = create_sparse_normal_matric_indices(a)
+    norm_indices = create_sparse_normal_matrix_indices(a)
     norm_a_buf = create_sparse_normal_matrix_buffers(cl_context, norm_indices)
     x_buf = cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=x)
     z_buf = cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=z)
@@ -220,7 +424,7 @@ def normal_conjugate_gradient_solve(
 
     # Copy the sparse matrix, it's normal indices  and vector to the context
     a_buf = create_sparse_matrix_buffer(cl_context, a)
-    norm_indices = create_sparse_normal_matric_indices(a)
+    norm_indices = create_sparse_normal_matrix_indices(a)
     norm_a_buf = create_sparse_normal_matrix_buffers(cl_context, norm_indices)
     x_buf = cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=x)
     z_buf = cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=z)
