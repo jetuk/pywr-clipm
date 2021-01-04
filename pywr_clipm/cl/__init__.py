@@ -1,7 +1,7 @@
 import pyopencl as cl
 import os
 
-CL_DIR = os.path.join(os.path.dirname(__file__), 'cl')
+CL_DIR = os.path.join(os.path.dirname(__file__))
 
 
 def get_cl_program(cl_context: cl.Context, fast_relaxed_math: bool = False, **kwargs) -> cl.Program:

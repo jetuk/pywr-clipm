@@ -219,9 +219,9 @@ def create_sparse_normal_matrix_cholesky_indices(a: sparse.csr_matrix) -> Sparse
 
     dtype = np.uint32
     # Compute transpose mapping
-    l = sparse.csr_matrix((np.ones(len(indices)), indices, indptr))
-    lt = l.transpose().tocsr()
-    ltmap = np.argsort(l.indices, kind='mergesort').astype(dtype)
+    lower = sparse.csr_matrix((np.ones(len(indices)), indices, indptr))
+    lt = lower.transpose().tocsr()
+    ltmap = np.argsort(lower.indices, kind='mergesort').astype(dtype)
 
     return SparseNormalCholeskyIndices(
         np.array(a_indptr, dtype=dtype),

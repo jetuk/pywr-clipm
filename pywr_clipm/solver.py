@@ -1,7 +1,7 @@
 from pywr.core import ModelStructureError
 from pywr._core import BaseInput, BaseOutput, BaseLink, Storage, VirtualStorage, AggregatedNode
 from pywr.solvers import Solver, solver_registry
-from scipy.sparse import coo_matrix, linalg, hstack, eye
+from scipy.sparse import coo_matrix, hstack, eye
 import time
 import numpy as np
 from typing import List
@@ -610,5 +610,6 @@ class PathFollowingDirectClSolver(BasePathFollowingClSolver):
 
         self.edge_flows_arr[...] = self.x[:self.num_edges, :]
         self._update_flows()
+
 
 solver_registry.append(PathFollowingDirectClSolver)

@@ -4,7 +4,7 @@ from pywr.model import Model
 from pywr.core import Scenario
 from pywr.nodes import Input, Link, Output
 from numpy.testing import assert_allclose
-from cgpycl.solver import PathFollowingIndirectClSolver  # noqa
+from pywr_clipm.solver import PathFollowingIndirectClSolver  # noqa
 import pytest
 
 # os.environ['PYWR_SOLVER'] = 'path-following-indirect-cl'

@@ -1,7 +1,7 @@
 import pyopencl as cl
 from scipy import sparse
 import numpy as np
-from cgpycl.sparse import create_sparse_matrix_buffer, SparseMatrixClBuffer, sparse_matrix_vector_product, \
+from pywr_clipm.sparse import create_sparse_matrix_buffer, SparseMatrixClBuffer, sparse_matrix_vector_product, \
     SparseNormalMatrixClBuffer, create_sparse_normal_matrix_indices, create_sparse_normal_matrix_buffers, \
     normal_matrix_vector_product, normal_conjugate_gradient_solve, normal_equation_rhs
 

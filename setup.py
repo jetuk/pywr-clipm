@@ -4,7 +4,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
 setuptools.setup(
-    name="cgpycl",
+    name="pywr-clipm",
     version="0.1.0",
     author="James E. Tomlinson",
     author_email="tomo.bbe@gmail.com",
@@ -12,6 +12,9 @@ setuptools.setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     packages=setuptools.find_packages(),
+    package_data={
+        "": ["*.cl"]
+    },
     classifiers=[
         "Programming Language :: Python :: 3",
         "Operating System :: OS Independent",

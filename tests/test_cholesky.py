@@ -2,7 +2,7 @@ import pyopencl as cl
 from scipy import sparse
 import numpy as np
 from numpy.testing import assert_allclose
-from cgpycl.sparse import create_sparse_normal_matrix_cholesky_indices, create_sparse_normal_matrix_cholesky_buffers, \
+from pywr_clipm.sparse import create_sparse_normal_matrix_cholesky_indices, create_sparse_normal_matrix_cholesky_buffers, \
     SparseNormalCholeskyClBuffers, sparse_normal_matrix_cholesky_decomposition
 
 
