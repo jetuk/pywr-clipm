@@ -15,7 +15,7 @@ setuptools.setup(
     package_data={
         "": ["*.cl"]
     },
-    install_reqiures=[
+    install_requires=[
         "pyopencl",
         "scikit-sparse",
         "numpy"
