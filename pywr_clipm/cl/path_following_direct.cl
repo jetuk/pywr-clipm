@@ -14,16 +14,16 @@ __kernel void normal_matrix_cholesky_decomposition(
     __global double* z,
     __global double* y,
     __global double* w,
-    uint wsize,    
+    uint wsize,
     __constant uint* Lindptr,
     __constant uint* Ldiag_indptr,
     __constant uint* Lindices,
     __global double* Ldata
 ) {
-    /* 
+    /*
     */
     uint gid = get_global_id(0);
-    uint gsize = get_global_size(0);  
+    uint gsize = get_global_size(0);
     uint row, col, ii, jj;
     uint row_gid, xind;
     uint row_ind, row_ind_end;
@@ -63,8 +63,8 @@ __kernel void normal_matrix_cholesky_decomposition(
             if (row == col) {
                 if (row < wsize) {
                     val += w[row_gid] / y[row_gid];
-                }          
-                val = sqrt(fabs(val));  
+                }
+                val = sqrt(fabs(val));
             } else {
                 val = val / Ldata[Ldiag_indptr[col]*gsize + gid];
             }
@@ -96,7 +96,7 @@ __kernel void cholesky_solve(
 
   // Forward substitution
   for (i=0; i<Asize; i++) {
-    
+
     x[i*gsize+gid] = b[i*gsize+gid];
 
     jk = Lindptr[i];
@@ -143,15 +143,15 @@ __kernel void normal_eqn_step(
     __constant uint* Lindptr,
     __constant uint* Ldiag_indptr,
     __constant uint* Lindices,
-    __constant uint* LTindptr,    
-    __constant uint* LTindices,    
-    __constant uint* LTmap,    
+    __constant uint* LTindptr,
+    __constant uint* LTindices,
+    __constant uint* LTmap,
     __global double* Ldata,
     __global double* x,
     __global double* z,
     __global double* y,
     __global double* w,
-    uint wsize,    
+    uint wsize,
     __global double* b,
     __global double* c,
     double delta,
@@ -159,7 +159,7 @@ __kernel void normal_eqn_step(
     __global double* dz,
     __global double* dy,
     __global double* dw,
-    __global double* tmp, 
+    __global double* tmp,
     __global double* tmp2,
     __global uint* status
 ) {
@@ -210,7 +210,7 @@ __kernel void normal_eqn_step(
         z,
         y,
         w,
-        wsize,    
+        wsize,
         Lindptr,
         Ldiag_indptr,
         Lindices,

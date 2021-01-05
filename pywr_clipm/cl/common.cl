@@ -77,9 +77,6 @@ void vector_update(__global double* x, __global double* y, double xscale, double
 
     for (row=0; row<N; row++) {
         row_gid = row*gsize + gid;
-        // if (gid == 0) {
-        //     printf("update %d: %f %f %f %f %f\n", row_gid, xscale, x[row_gid], yscale, y[row_gid], xscale*x[row_gid] + yscale*y[row_gid]);
-        // }
         x[row_gid] = xscale*x[row_gid] + yscale*y[row_gid];
     }
 }
@@ -98,6 +95,7 @@ void vector_set(__global double* x, double scalar, int N) {
 }
 
 double vector_max(__global double *x, int N) {
+    /* return max(x) */
     uint gid = get_global_id(0);
     uint gsize = get_global_size(0);
     uint row;
@@ -152,6 +150,7 @@ __kernel void normal_eqn_rhs(
     for (row=0; row<Asize; row++) {
         row_gid = row*gsize + gid;
 
+        // The mu/y term is only applied to rows where w is defined.
         if (row < wsize) {
             val = mu / y[row_gid];
         } else {
@@ -180,7 +179,7 @@ double primal_feasibility(
 ) {
     /* Calculate primal-feasibility
 
-        normr = b - A.dot(x)
+        normr = b - A.dot(x) - w
     */
     uint gid = get_global_id(0);
     uint gsize = get_global_size(0);
@@ -263,7 +262,9 @@ double compute_dx_dz_dw(
     __global double* dz,
     __global double* dw
 ) {
-    /*
+    /*  Compute the path step changes given known dy and return maximum value of theta.
+
+        Theta value is the max(-dx/x, -dz/z, -dw/w, -dy/y).
 
         dx = (c - AT.dot(y) - AT.dot(dy) + mu/x)*x/z
         dz = (mu - z*dx)/x - z
@@ -297,21 +298,18 @@ double compute_dx_dz_dw(
         dz[row_gid] = (mu - z[row_gid]*dx[row_gid])/x[row_gid] - z[row_gid];
 
         theta_xz = max(max(theta_xz, -dx[row_gid]/x[row_gid]), -dz[row_gid]/z[row_gid]);  
-
-        //printf("%d x: %g, dx: %g, z: %g, dz: %g, theta: %g", gid, x[row_gid], dx[row_gid], z[row_gid], dz[row_gid], theta_xz);
     }
 
+    // dw is only defined for rows with w (i.e. inequality rows with a slack variable)
     for (row=0; row<wsize; row++) {
         row_gid = row*gsize + gid;
-        //printf("%d y: %g, dy: %g, theta: %g", gid, y[row_gid], dy[row_gid], theta);        
+
         dw[row_gid] = (mu - w[row_gid]*dy[row_gid])/y[row_gid] - w[row_gid];
         theta_wy = max(max(theta_wy, -dw[row_gid]/w[row_gid]), -dy[row_gid]/y[row_gid]);
     }
 
-    //printf("%d theta xz: %g, wy: %g", gid, theta_xz, theta_wy);
     for (row=0; row<Asize; row++) {
         row_gid = row*gsize + gid;
-        //printf("%d y: %g, dy: %g, -dy/y: %g", gid, y[row_gid], dy[row_gid], -dy[row_gid]/y[row_gid]);
     }
 
     return max(theta_xz, theta_wy);
