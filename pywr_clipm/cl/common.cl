@@ -206,7 +206,7 @@ double primal_feasibility(
             index += 1;
         }
 
-        normr += pow(val, 2);
+        normr += pown(val, 2);
     }
 
     return sqrt(normr);
@@ -241,7 +241,7 @@ double dual_feasibility(
             index += 1;
         }
 
-        norms += pow(val, 2);
+        norms += pown(val, 2);
     }
 
     return sqrt(norms);
