@@ -85,17 +85,16 @@ class BasePathFollowingClSolver(Solver):
         self.cl_queue = cl.CommandQueue(self.cl_context)
 
         self._cloned_edges = None
+        self._fixed_edges = None
+        self._column_edge_map = None
+        self._edge_column_map = None
 
     def _get_col(self, edge_id):
-        try:
-            col = self._cloned_edges[edge_id]
-        except KeyError:
-            col = edge_id
-        return col
+        return self._edge_column_map[edge_id]
 
     def setup(self, model):
         self.all_nodes = list(sorted(model.graph.nodes(), key=lambda n: n.fully_qualified_name))
-        self.all_edges = edges = list(model.graph.edges())
+        self.all_edges = all_edges = list(model.graph.edges())
         if not self.all_nodes or not self.all_edges:
             raise ModelStructureError("Model is empty")
 
@@ -114,21 +113,6 @@ class BasePathFollowingClSolver(Solver):
 
         # Find cross-domain routes
         cross_domain_routes = model.find_all_routes(BaseOutput, BaseInput, max_length=2, domain_match='different')
-
-        # create a lookup for the cross-domain routes.
-        cross_domain_cols = {}
-        for cross_domain_route in cross_domain_routes:
-            # These routes are only 2 nodes. From output to input
-            output, input = cross_domain_route
-            # note that the conversion factor is not time varying
-            conv_factor = input.get_conversion_factor()
-            input_cols = [(n, conv_factor) for n in node_data[input].out_edges]
-            # create easy lookup for the route columns this output might
-            # provide cross-domain connection to
-            if output in cross_domain_cols:
-                cross_domain_cols[output].extend(input_cols)
-            else:
-                cross_domain_cols[output] = input_cols
 
         link_nodes = []
         non_storages = []
@@ -155,16 +139,37 @@ class BasePathFollowingClSolver(Solver):
             raise ModelStructureError("Model has no non-storage nodes")
 
         # Create a container for the inequality and equality constraints separately.
-        self.num_edges = len(edges)
         lp_ineq = LP()
         lp_eq = LP()
 
         # create a lookup for edges associated with each node (ignoring cross domain edges)
-        for edge, (start_node, end_node) in enumerate(self.all_edges):
+        flow_edges = []
+        for start_node, end_node in all_edges:
             if start_node.domain != end_node.domain:
                 continue
-            node_data[start_node].out_edges.append(edge)
-            node_data[end_node].in_edges.append(edge)
+            edge_id = len(flow_edges)
+            node_data[start_node].out_edges.append(edge_id)
+            node_data[end_node].in_edges.append(edge_id)
+            flow_edges.append((start_node, end_node))
+            print(start_node, end_node, edge_id)
+        self.flow_edges = flow_edges
+
+        # create a lookup for the cross-domain routes.
+        cross_domain_cols = {}
+        for cross_domain_route in cross_domain_routes:
+            # These routes are only 2 nodes. From output to input
+            output, input = cross_domain_route
+            # note that the conversion factor is not time varying
+            conv_factor = input.get_conversion_factor()
+            input_cols = [(n, conv_factor) for n in node_data[input].out_edges]
+            # create easy lookup for the route columns this output might
+            # provide cross-domain connection to
+            if output in cross_domain_cols:
+                cross_domain_cols[output].extend(input_cols)
+            else:
+                cross_domain_cols[output] = input_cols
+
+        print(cross_domain_cols)
 
         def get_edges(some_node):
             """
@@ -196,9 +201,21 @@ class BasePathFollowingClSolver(Solver):
 
             if len(d.in_edges) == 1 and len(d.out_edges) == 1:
                 print(f'Trivially equal columns: {some_node} - {d.in_edges[0]} == {d.out_edges[0]}')
-                self._cloned_edges[d.out_edges[0]] = d.in_edges[0]
+                in_e = d.in_edges[0]
+                out_e = d.out_edges[0]
+
+                if in_e in self._cloned_edges:
+                    in_e = self._cloned_edges[in_e]
+                self._cloned_edges[out_e] = in_e
+
+        # These are the edges which are solved by the linear programme
+        self._column_edge_map = [edge_id for edge_id in range(len(flow_edges)) if edge_id not in self._cloned_edges]
+        self._edge_column_map = {e: c for c, e in enumerate(self._column_edge_map)}
+        self._edge_column_map.update({e1: self._edge_column_map[e2] for e1, e2 in self._cloned_edges.items()})
 
         print(self._cloned_edges)
+        print(self._column_edge_map)
+        print(self._edge_column_map)
         # # Find any trivially defined edge flows
         # fixed_edges = {}
         # for some_node in non_storages:
@@ -206,9 +223,7 @@ class BasePathFollowingClSolver(Solver):
         #     if some_node.min_flow == some_node.max_flow:
         #         if len(edges) == 1:
         #             fixed_edges[edges[0]] = {}
-
-        # These are the edges which are solved by the linear programme
-        column_edge_ids = [edge_id for edge_id in range(len(edges)) if edge_id not in self._cloned_edges]
+        # self._fixed_edges = fixed_edges
 
         # Apply nodal flow constraints
         self.row_map_ineq_non_storage = {}
@@ -222,6 +237,7 @@ class BasePathFollowingClSolver(Solver):
 
             # print(some_node, get_edges(some_node), get_cols(some_node))
             cols = get_cols(some_node)
+            print(some_node, cols)
 
             if some_node.min_flow == some_node.max_flow:
                 # This is an equality constraint
@@ -238,16 +254,18 @@ class BasePathFollowingClSolver(Solver):
                 self.row_map_ineq_non_storage[some_node] = row
                 # print(some_node, row, cols)
 
+        for some_node in non_storages:
             # Add constraint for cross-domain routes
             # i.e. those from a demand to a supply
             if some_node in cross_domain_cols:
                 col_vals = cross_domain_cols[some_node]
+                cols = get_cols(some_node)
 
-                if len(edges) == 1 and len(col_vals) == 1:
+                if len(cols) == 1 and len(col_vals) == 1:
                     print(f'Trivially equal cross-domain column: {some_node}')
 
                 row = lp_eq.add_row(
-                    cols + [get_col(c) for c, _ in col_vals],
+                    cols + [self._get_col(c) for c, _ in col_vals],
                     [-1.0 for _ in cols] + [1. / v for _, v in col_vals]
                 )
 
@@ -256,6 +274,8 @@ class BasePathFollowingClSolver(Solver):
             d = node_data[some_node]
             in_cols = [self._get_col(e) for e in d.in_edges]
             out_cols = [self._get_col(e) for e in d.out_edges]
+
+            print('mb', some_node, in_cols, out_cols)
 
             if len(in_cols) == 1 and len(out_cols) == 1:
                 continue
@@ -277,6 +297,8 @@ class BasePathFollowingClSolver(Solver):
 
             cols_output = [self._get_col(e) for e in cols_output]
             cols_input = [self._get_col(e) for e in cols_input]
+
+            print(storage, cols_output, cols_input)
 
             # Two rows needed for the range constraint on change in storage volume
             row1 = lp_ineq.add_row(
@@ -304,7 +326,7 @@ class BasePathFollowingClSolver(Solver):
 
         # Add slacks to the inequality section
         # self.a = hstack([self.a, eye(self.a.shape[0], lp_ineq.nrows)]).tocsr()
-        print(self.a)
+        print(self.a.todense())
         print(self.a.shape)
         # from sksparse import cholmod
         #
@@ -379,6 +401,7 @@ class BasePathFollowingClSolver(Solver):
                 edge_costs[col, :] += cost
 
         c[:ncols, :] = -edge_costs
+        print(c)
 
     def _update_b(self, model):
         timestep = model.timestep
@@ -391,7 +414,7 @@ class BasePathFollowingClSolver(Solver):
         # Ineqality constraints come first with zero offset
         for node, row in self.row_map_ineq_non_storage.items():
             node.get_all_max_flow(out=b[row, :])
-            # print(node, np.max(np.abs(b[row, :])), node.max_flow)
+            print(node, row, np.max(np.abs(b[row, :])), node.max_flow)
 
         # ... then equality constraints
         offset = self.num_inequality_constraints
@@ -417,15 +440,20 @@ class BasePathFollowingClSolver(Solver):
             b[row1, :] = ub
             b[row2, :] = lb
 
+        print(b)
+
     def _update_flows(self):
-        edges = self.all_edges
+
         edge_flows = self.edge_flows_arr
 
         # collect the total flow via each node
         node_flows = self.node_flows_arr
         node_flows[:] = 0.0
-        for n, edge in enumerate(edges):
-            col = self._get_col(n)
+        print(self._column_edge_map)
+        for edge_id, col in self._edge_column_map.items():
+            print(edge_id, col)
+            edge = self.flow_edges[edge_id]
+
             flow = edge_flows[col, :]
             # print(n, edge, flow)
             for _node in edge:
@@ -439,6 +467,7 @@ class BasePathFollowingClSolver(Solver):
         for n in range(0, self.num_nodes):
             _node = self.all_nodes[n]
             _node.commit_all(node_flows[n, :])
+            print(_node, node_flows[n, :])
 
 
 class PathFollowingIndirectClSolver(BasePathFollowingClSolver):
@@ -617,7 +646,7 @@ class PathFollowingDirectClSolver(BasePathFollowingClSolver):
             np.uint32(self.num_inequality_constraints),
         )
 
-        for iter in range(200):
+        for iter in range(300):
             self.program.normal_eqn_step(
                 self.cl_queue, (self.b.shape[1],), None,
                 a_buf.indptr, a_buf.indices, a_buf.data, a_buf.nrows,
@@ -654,8 +683,9 @@ class PathFollowingDirectClSolver(BasePathFollowingClSolver):
             raise RuntimeError('Failed to solve!')
 
         cl.enqueue_copy(self.cl_queue, self.x, self.x_buf)
-        # print('x', self.x)
+        print('x', self.x)
         print(f'Solve completed in {time.perf_counter() - t0}s')
+
 
         if np.any(np.isnan(self.x)):
             raise RuntimeError('NaNs in solution!')

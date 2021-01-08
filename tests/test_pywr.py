@@ -10,7 +10,10 @@ import pytest
 # os.environ['PYWR_SOLVER'] = 'path-following-indirect-cl'
 
 
-@pytest.fixture(scope="module", params=['path-following-indirect-cl', 'path-following-direct-cl'])
+@pytest.fixture(scope="module", params=[
+    # 'path-following-indirect-cl',
+    'path-following-direct-cl'
+])
 def pywr_solver(request):
     os.environ['PYWR_SOLVER'] = request.param
 
@@ -118,3 +121,13 @@ def test_transfer2(pywr_solver, size):
         assert_allclose(model.nodes[f'supply-{i}'].flow, [expected] * size)
 
     assert_allclose(transfer04.flow, [0.0] * size, atol=1e-8)
+
+
+def test_simple_thames(pywr_solver):
+
+    model = load_model('simple_thames.json')
+    model.setup()
+    model.step()
+
+    assert_allclose(model.nodes['demand1'].flow, 2500.0)
+    assert_allclose(model.nodes['mrf1'].flow, 12140.68378675 - 3500.0)

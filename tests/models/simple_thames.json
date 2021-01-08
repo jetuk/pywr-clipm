@@ -1,0 +1,104 @@
+{
+    "metadata": {
+        "title": "A simple model using the river Thames",
+        "description": "This model uses river Thames inflows. However it does",
+        "minimum_version": "0.1"
+    },
+    "timestepper": {
+        "start": "1892-01-01",
+        "end": "2012-01-31",
+        "timestep": 1
+    },
+    "nodes": [
+        {
+            "name": "catchment1",
+            "type": "catchment",
+            "flow": "thames_flow"
+        },
+        {
+            "name": "river1",
+            "type": "Link"
+        },
+        {
+            "name": "abs1",
+            "type": "link",
+            "max_flow": 3500
+        },
+        {
+            "name": "demand1",
+            "type": "Output",
+            "max_flow": 2500.0,
+            "cost": -500
+        },
+        {
+            "name": "mrf1",
+            "type": "rivergauge",
+            "mrf": 600,
+            "mrf_cost": -1000
+        },
+        {
+            "name": "term1",
+            "type": "Output",
+            "cost": -5
+        },
+        {
+            "name": "reservoir1",
+            "type": "reservoir",
+            "max_volume": 200e3,
+            "initial_volume": 100,
+            "initial_volume_pc": 0.5,
+            "cost": -10
+        },
+        {
+            "name": "desalination_control",
+            "type": "link",
+            "max_flow": "desal_constraint"
+        },
+        {
+            "name": "desalination1",
+            "type": "input",
+            "max_flow": 0.0,
+            "cost": -50
+        }
+    ],
+    "edges": [
+        ["catchment1", "river1"],
+        ["river1", "abs1"],
+        ["abs1", "reservoir1"],
+        ["reservoir1", "demand1"],
+        ["desalination1", "desalination_control"],
+        ["desalination_control", "demand1"],
+        ["river1", "mrf1"],
+        ["mrf1", "term1"]
+    ],
+    "parameters": {
+        "thames_flow": {
+                "type": "dataframe",
+                "url" : "Thames @ Kingston - GLM - Historical Naturalised (Daily) v2.h5"
+        },
+        "desal_activation": {
+            "comment": "The demand saving level",
+            "type": "controlcurveindex",
+            "storage_node": "reservoir1",
+            "control_curves": [
+                0.5
+            ]
+        },
+        "desal_constraint": {
+            "type": "indexedarray",
+            "index_parameter": "desal_activation",
+            "params": [
+                {
+                    "type": "constant",
+                    "value": 0.0
+                },
+                {
+                    "type": "constant",
+                    "value": 9999
+                }
+            ]
+        }
+    },
+    "recorders": {
+    }
+}

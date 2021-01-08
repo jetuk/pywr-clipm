@@ -28,7 +28,7 @@ __kernel void normal_matrix_cholesky_decomposition(
     uint row_gid, xind;
     uint row_ind, row_ind_end;
     uint ind, ind_end;
-    double val, inner_val;
+    double val;
 
     uint Lentry = 0;
 
@@ -43,7 +43,12 @@ __kernel void normal_matrix_cholesky_decomposition(
             col = Lindices[row_ind];
 
             // Compute the normal equation element AAT[i, j]
-            val = 0.0;
+            if ((row == col) && (row < wsize)) {
+                val = w[row_gid] / y[row_gid];
+            } else {
+                val = 0.0;
+            }
+
             ind = Anorm_indptr[Lentry];
             ind_end = Anorm_indptr[Lentry + 1];
 
@@ -57,13 +62,9 @@ __kernel void normal_matrix_cholesky_decomposition(
 
             for (; ind < ind_end; ind++) {
                 val -= Ldata[Ldecomp_indptr_i[ind] * gsize + gid] * Ldata[Ldecomp_indptr_j[ind] * gsize + gid];
-
             }
 
             if (row == col) {
-                if (row < wsize) {
-                    val += w[row_gid] / y[row_gid];
-                }
                 val = sqrt(fabs(val));
             } else {
                 val = val / Ldata[Ldiag_indptr[col]*gsize + gid];
@@ -179,7 +180,7 @@ __kernel void normal_eqn_step(
     double max_x = vector_max(x, ATsize);
     double max_y = vector_max(y, Asize);
 
-    if (gid == 2) {
+    if (gid == 1) {
         printf("%d %d norm-r: %g, norm-s: %g, gamma: %g, max(x): %g, max(y): %g\n", gid, wsize, normr, norms, gamma, max_x, max_y);
     }
     if ((normr < 1e-6) && (norms < 1e-6) && (gamma < 1e-6)) {
