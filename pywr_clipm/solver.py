@@ -243,11 +243,6 @@ class BasePathFollowingClSolver(Solver):
             e1: self._edge_column_map[e2] for e1, e2 in self._cloned_edges.items() if e2 not in self._fixed_edges
         })
 
-        print(self._cloned_edges)
-        print(self._fixed_edges)
-        print(self._column_edge_map)
-        print(self._edge_column_map)
-
         # Apply nodal flow constraints
         self.row_map_ineq_non_storage = {}
         self.row_map_eq_non_storage = {}
@@ -261,7 +256,6 @@ class BasePathFollowingClSolver(Solver):
             # print(some_node, get_edges(some_node), get_cols(some_node))
             edges = get_edges(some_node)
             cols, known_edges = edges_to_cols(edges)
-            print(some_node, cols, known_edges)
 
             if some_node.min_flow == some_node.max_flow:
                 if len(cols) == 0:
@@ -302,10 +296,6 @@ class BasePathFollowingClSolver(Solver):
 
                 edges = get_edges(some_node)
                 cols, known_edges = edges_to_cols(edges)
-                print(some_node, cols, known_edges)
-
-                if len(cols) == 1 and len(cd_cols) == 1:
-                    print(f'Trivially equal cross-domain column: {some_node}')
 
                 row = lp_eq.add_row(
                     cols + [c for c, _ in cd_cols],
@@ -324,8 +314,6 @@ class BasePathFollowingClSolver(Solver):
 
             if in_cols == out_cols:
                 continue
-            if len(in_cols) == 1 and len(out_cols) == 1:
-                print(f'Trivially equal mass-balance column: {some_node}')
 
             row = lp_eq.add_row(
                 in_cols + out_cols,
@@ -337,8 +325,6 @@ class BasePathFollowingClSolver(Solver):
 
             for e in out_known_edges:
                 self._fixed_edges[e]['eq'][row] = -1.0
-
-            print('mb', row, some_node, in_cols, out_cols, in_known_edges, out_known_edges)
 
         # Add storage constraints
         for storage in storages:
@@ -352,8 +338,6 @@ class BasePathFollowingClSolver(Solver):
 
             cols_output, known_edges_output = edges_to_cols(cols_output)
             cols_input, known_edges_input = edges_to_cols(cols_input)
-
-            print(storage, cols_output, cols_input)
 
             # Two rows needed for the range constraint on change in storage volume
             row1 = lp_ineq.add_row(
@@ -389,21 +373,7 @@ class BasePathFollowingClSolver(Solver):
 
         # Add slacks to the inequality section
         # self.a = hstack([self.a, eye(self.a.shape[0], lp_ineq.nrows)]).tocsr()
-        print('num_inequality_constraints', self.num_inequality_constraints)
-        print(self.a.todense())
-        print(self.a)
-        print(self.a.getrow(228))
-        print(self.a.getcol(60))
-        print(self.a.shape)
-        # from sksparse import cholmod
-        #
-        # factors = cholmod.cholesky_AAt(self.a, ordering_method='natural')
-        # L, D = factors.L_D()
-        # print('A', self.a.getnnz(), self.a.shape)
-        # print('L', L.getnnz())
-        # print('D', D.getnnz())
 
-        # assert False
         nrows, ncols = self.a.shape
 
         self.b = np.zeros((nrows, nscenarios))
@@ -483,19 +453,14 @@ class BasePathFollowingClSolver(Solver):
 
         b = self.b
 
-        # update non-storage properties
-        row = 0
-
         # Ineqality constraints come first with zero offset
         for node, row in self.row_map_ineq_non_storage.items():
             node.get_all_max_flow(out=b[row, :])
-            print(node, row, b[row, 4])
 
         # ... then equality constraints
         offset = self.num_inequality_constraints
         for node, row in self.row_map_eq_non_storage.items():
             node.get_all_max_flow(out=b[offset + row, :])
-            print(node, offset + row, b[offset + row, 4])
 
         # Non-storage constraints
         for storage, (row1, row2) in self.row_map_ineq_storage.items():
@@ -515,8 +480,6 @@ class BasePathFollowingClSolver(Solver):
             b[row1, :] = ub
             b[row2, :] = lb
 
-            print(storage, row1, row2, ub[276], lb[276])
-
         for edge, data in self._fixed_edges.items():
             node = data['node']
             bnode = np.array(node.get_all_max_flow())
@@ -524,8 +487,6 @@ class BasePathFollowingClSolver(Solver):
                 b[row, :] -= f * bnode
             for row, f in data['eq'].items():
                 b[offset + row, :] -= f * bnode
-        # raise RuntimeError()
-        print(b)
 
     def _update_flows(self):
 
@@ -534,13 +495,12 @@ class BasePathFollowingClSolver(Solver):
         # collect the total flow via each node
         node_flows = self.node_flows_arr
         node_flows[:] = 0.0
-        print(self._column_edge_map)
+
         for edge_id, col in self._edge_column_map.items():
-            print(edge_id, col)
             edge = self.flow_edges[edge_id]
 
             flow = edge_flows[col, :]
-            # print(n, edge, flow)
+
             for _node in edge:
                 data = self.node_data[_node]
                 if data.is_link:
@@ -552,7 +512,6 @@ class BasePathFollowingClSolver(Solver):
         for n in range(0, self.num_nodes):
             _node = self.all_nodes[n]
             _node.commit_all(node_flows[n, :])
-            print(_node, node_flows[n, :])
 
 
 class PathFollowingIndirectClSolver(BasePathFollowingClSolver):
@@ -763,9 +722,7 @@ class PathFollowingDirectClSolver(BasePathFollowingClSolver):
                 break
 
         cl.enqueue_copy(self.cl_queue, self.x, self.x_buf)
-        print('x', self.x)
         print(f'Solve completed in {time.perf_counter() - t0}s')
-        import pdb; pdb.set_trace()
 
         if not np.all(self.status == 0):
             print(self.status)
