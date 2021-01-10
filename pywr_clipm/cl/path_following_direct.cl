@@ -183,7 +183,7 @@ __kernel void normal_eqn_step(
     if (gid == 1) {
         printf("%d %d norm-r: %g, norm-s: %g, gamma: %g, max(x): %g, max(y): %g\n", gid, wsize, normr, norms, gamma, max_x, max_y);
     }
-    if ((normr < 1e-6) && (norms < 1e-6) && (gamma < 1e-6)) {
+    if ((normr < 1e-8) && (norms < 1e-8) && (gamma < 1e-8)) {
         // Feasible and optimal; no further work!
         status[gid] = 0;
         return;

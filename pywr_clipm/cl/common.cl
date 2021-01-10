@@ -179,19 +179,21 @@ double primal_feasibility(
 ) {
     /* Calculate primal-feasibility
 
-        normr = b - A.dot(x) - w
+        normr = || b - A.dot(x) - w || / max(|| b ||, 1)
     */
     uint gid = get_global_id(0);
     uint gsize = get_global_size(0);
     uint row, col, index, last_index;
     uint row_gid;
-    double val;
+    double val, normb;
 
     // Compute primal feasibility
     double normr = 0.0;
     for (row=0; row<Asize; row++) {
         row_gid = row*gsize + gid;
         val = b[row_gid];
+        normb += fabs(val);
+
 
         if (row < wsize) {
             val -= w[row_gid];
@@ -206,10 +208,10 @@ double primal_feasibility(
             index += 1;
         }
 
-        normr += pown(val, 2);
+        normr += fabs(val);
     }
 
-    return sqrt(normr);
+    return val / max(normb, 1.0);
 }
 
 double dual_feasibility(
@@ -218,19 +220,21 @@ double dual_feasibility(
 ) {
     /* Calculate dual-feasibility
 
-        norms = c - AT.dot(y) + z
+        norms = || c - AT.dot(y) + z || / max(|| c ||, 1)
     */
     uint gid = get_global_id(0);
     uint gsize = get_global_size(0);
     uint row, col, index, last_index;
     uint row_gid;
-    double val;
+    double val, normc;
 
     // Compute primal feasibility
     double norms = 0.0;
     for (row=0; row<ATsize; row++) {
         row_gid = row*gsize + gid;
-        val = c[row_gid] + z[row_gid];
+        val = c[row_gid];
+        normc += fabs(val);
+        val +=  z[row_gid];
 
         index = ATindptr[row];
         last_index = ATindptr[row+1];
@@ -241,10 +245,10 @@ double dual_feasibility(
             index += 1;
         }
 
-        norms += pown(val, 2);
+        norms += fabs(val);
     }
 
-    return sqrt(norms);
+    return norms/normc;
 }
 
 double compute_dx_dz_dw(
