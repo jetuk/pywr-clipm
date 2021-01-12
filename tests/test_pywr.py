@@ -11,8 +11,8 @@ import pytest
 
 
 @pytest.fixture(scope="module", params=[
-    # 'path-following-indirect-cl',
-    'path-following-direct-cl'
+    'path-following-direct-cl',
+    'path-following-indirect-cl',
 ])
 def pywr_solver(request):
     os.environ['PYWR_SOLVER'] = request.param

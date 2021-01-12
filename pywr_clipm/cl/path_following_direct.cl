@@ -171,19 +171,20 @@ __kernel void normal_eqn_step(
     uint gsize = get_global_size(0);
 
     // Compute feasibilities
-    double normr = primal_feasibility(Aindptr, Aindices, Adata, Asize, x, w, wsize, b);
-    double norms = dual_feasibility(ATindptr, ATindices, ATdata, ATsize, y, c, z);
+    double normr = primal_feasibility(Aindptr, Aindices, Adata, Asize, ATsize, x, w, wsize, b);
+    double norms = dual_feasibility(ATindptr, ATindices, ATdata, ATsize, Asize, y, c, z);
     // Compute optimality
     double gamma = dot_product(z, x, ATsize) + dot_product(w, y, wsize);
     double mu = delta * gamma / (ATsize + wsize);
+    // update relative feasibility tolerance
+    gamma = gamma / (1 + vector_norm(x, ATsize) + vector_norm(y, Asize));
 
-    double max_x = vector_max(x, ATsize);
-    double max_y = vector_max(y, Asize);
-
-    if (gid == 1) {
-        printf("%d %d norm-r: %g, norm-s: %g, gamma: %g, max(x): %g, max(y): %g\n", gid, wsize, normr, norms, gamma, max_x, max_y);
+    #ifdef DEBUG_GID
+    if (gid == DEBUG_GID) {
+        printf("%d %d norm-r: %g, norm-s: %g, gamma: %g, max(x): %g, max(y): %g\n", gid, wsize, normr, norms, gamma);
     }
-    if ((normr < 1e-8) && (norms < 1e-8) && (gamma < 1e-8)) {
+    #endif
+    if ((normr < 1e-6) && (norms < 1e-8) && (gamma < 1e-8)) {
         // Feasible and optimal; no further work!
         status[gid] = 0;
         return;

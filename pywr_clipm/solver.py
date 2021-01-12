@@ -151,7 +151,7 @@ class BasePathFollowingClSolver(Solver):
             node_data[start_node].out_edges.append(edge_id)
             node_data[end_node].in_edges.append(edge_id)
             flow_edges.append((start_node, end_node))
-            print(start_node, end_node, edge_id)
+
         self.flow_edges = flow_edges
 
         # create a lookup for the cross-domain routes.
@@ -212,7 +212,6 @@ class BasePathFollowingClSolver(Solver):
             d = node_data[some_node]
 
             if len(d.in_edges) == 1 and len(d.out_edges) == 1:
-                print(f'Trivially equal columns: {some_node} - {d.in_edges[0]} == {d.out_edges[0]}')
                 in_e = d.in_edges[0]
                 out_e = d.out_edges[0]
 
@@ -446,12 +445,12 @@ class BasePathFollowingClSolver(Solver):
                     edge_costs[col, :] += cost
 
         c[:ncols, :] = -edge_costs
-        print(c)
 
     def _update_b(self, model):
         timestep = model.timestep
 
         b = self.b
+        b[...] = 0.0
 
         # Ineqality constraints come first with zero offset
         for node, row in self.row_map_ineq_non_storage.items():
@@ -495,6 +494,17 @@ class BasePathFollowingClSolver(Solver):
         # collect the total flow via each node
         node_flows = self.node_flows_arr
         node_flows[:] = 0.0
+
+        for edge_id, data in self._fixed_edges.items():
+            edge = self.flow_edges[edge_id]
+            node = data['node']
+            flow = np.array(node.get_all_max_flow())
+            for _node in edge:
+                data = self.node_data[_node]
+                if data.is_link:
+                    node_flows[data.id, :] += flow / 2
+                else:
+                    node_flows[data.id, :] += flow / 2
 
         for edge_id, col in self._edge_column_map.items():
             edge = self.flow_edges[edge_id]
@@ -630,7 +640,6 @@ class PathFollowingDirectClSolver(BasePathFollowingClSolver):
 
         gsize = self.b.shape[1]
         self.ldata = np.zeros((cholesky_indices.lindices.shape[0], gsize))
-        print(self.ldata.shape)
         self.ldata_buf = cl.Buffer(self.cl_context, MF.WRITE_ONLY, self.ldata.nbytes)
 
         self.b_buf = cl.Buffer(self.cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=self.b)
@@ -676,7 +685,7 @@ class PathFollowingDirectClSolver(BasePathFollowingClSolver):
         at_buf = self.at_buf
         cholesky_buf = self.cholesky_buf
 
-        print('Starting solve ...')
+        print('Starting solve ...', model.timestepper.current)
         t0 = time.perf_counter()
 
         self.program.normal_eqn_init(
@@ -728,6 +737,7 @@ class PathFollowingDirectClSolver(BasePathFollowingClSolver):
             print(self.status)
             print(np.sum(self.status))
             print(np.where(self.status == 1))
+            import pdb; pdb.set_trace()
             raise RuntimeError('Failed to solve!')
 
         if np.any(np.isnan(self.x)):

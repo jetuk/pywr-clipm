@@ -64,7 +64,7 @@ void vector_copy(__global double* x, __global double* y, int N) {
 
     for (row=0; row<N; row++) {
         row_gid = row*gsize + gid;
-        y[row_gid] = x[row_gid];     
+        y[row_gid] = x[row_gid];
     }
 }
 
@@ -108,6 +108,22 @@ double vector_max(__global double *x, int N) {
         val = max(val, x[row_gid]);
     }
     return val;
+}
+
+double vector_norm(__global double *x, int N) {
+    /* return max(x) */
+    uint gid = get_global_id(0);
+    uint gsize = get_global_size(0);
+    uint row;
+    uint row_gid;
+
+    double val = 0.0;
+
+    for (row=0; row<N; row++) {
+        row_gid = row*gsize + gid;
+        val += pown(x[row_gid], 2);
+    }
+    return sqrt(val);
 }
 
 
@@ -172,6 +188,7 @@ __kernel void normal_eqn_rhs(
 
 double primal_feasibility(
     matrix(A),  // Sparse A matrix
+    uint ATsize,
     __global double* x,
     __global double* w,
     uint wsize,
@@ -185,15 +202,20 @@ double primal_feasibility(
     uint gsize = get_global_size(0);
     uint row, col, index, last_index;
     uint row_gid;
-    double val, normb;
+    double val;
+
+    double normx = 0.0;
+    double normr = 0.0;
+
+    // Compute ||x||
+    for (col=0; col<ATsize; col++) {
+        normx += pown(x[col*gsize+gid], 2);
+    }
 
     // Compute primal feasibility
-    double normr = 0.0;
     for (row=0; row<Asize; row++) {
         row_gid = row*gsize + gid;
         val = b[row_gid];
-        normb += fabs(val);
-
 
         if (row < wsize) {
             val -= w[row_gid];
@@ -208,14 +230,15 @@ double primal_feasibility(
             index += 1;
         }
 
-        normr += fabs(val);
+        normr += pown(val, 2);
     }
 
-    return val / max(normb, 1.0);
+    return sqrt(normr) / (1 + sqrt(normx));
 }
 
 double dual_feasibility(
     matrix(AT),  // Sparse A matrix
+    uint Asize,
     __global double* y, __global double* c, __global double* z
 ) {
     /* Calculate dual-feasibility
@@ -226,15 +249,20 @@ double dual_feasibility(
     uint gsize = get_global_size(0);
     uint row, col, index, last_index;
     uint row_gid;
-    double val, normc;
+    double val;
+
+    double normy = 0.0;
+    double norms = 0.0;
+
+    for (col=0; col<Asize; col++) {
+        normy += pown(y[col*gsize+gid], 2);
+    }
 
     // Compute primal feasibility
-    double norms = 0.0;
     for (row=0; row<ATsize; row++) {
         row_gid = row*gsize + gid;
-        val = c[row_gid];
-        normc += fabs(val);
-        val +=  z[row_gid];
+        val = z[row_gid];
+        val += c[row_gid];
 
         index = ATindptr[row];
         last_index = ATindptr[row+1];
@@ -245,10 +273,10 @@ double dual_feasibility(
             index += 1;
         }
 
-        norms += fabs(val);
+        norms += pown(val, 2);
     }
 
-    return norms/normc;
+    return sqrt(norms)/(1 + sqrt(normy));
 }
 
 double compute_dx_dz_dw(
@@ -259,7 +287,7 @@ double compute_dx_dz_dw(
     __global double* y,
     __global double* w,
     uint wsize,
-    __global double* c,    
+    __global double* c,
     __global double* dy,
     double mu,
     __global double* dx,
@@ -301,7 +329,7 @@ double compute_dx_dz_dw(
         dx[row_gid] = (c[row_gid] - val - val2 + mu/x[row_gid])*x[row_gid]/z[row_gid];
         dz[row_gid] = (mu - z[row_gid]*dx[row_gid])/x[row_gid] - z[row_gid];
 
-        theta_xz = max(max(theta_xz, -dx[row_gid]/x[row_gid]), -dz[row_gid]/z[row_gid]);  
+        theta_xz = max(max(theta_xz, -dx[row_gid]/x[row_gid]), -dz[row_gid]/z[row_gid]);
     }
 
     // dw is only defined for rows with w (i.e. inequality rows with a slack variable)

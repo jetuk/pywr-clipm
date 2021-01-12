@@ -14,7 +14,7 @@ __kernel void normal_matrix_vector_product(
     __global double* z,
     __global double* y,
     __global double* w,
-    uint wsize,    
+    uint wsize,
     __global double* b,
     __global double* out
 ) {
@@ -40,7 +40,6 @@ __kernel void normal_matrix_vector_product(
 
         col_ptr = Anorm_rowptr[row];
         col_ptr_end = Anorm_rowptr[row + 1];
-        //printf("row [%d]; col_ptr, col_ptr_end [%d, %d]\n", row, col_ptr, col_ptr_end);
 
         for (; col_ptr < col_ptr_end; col_ptr++) {
             col_start = Anorm_colptr[col_ptr];
@@ -78,7 +77,7 @@ double vector_normal_eqn_vector_product(
     __global double* z,
     __global double* y,
     __global double* w,
-    uint wsize,      
+    uint wsize,
     __global double* b
 ) {
     /* Compute the product of the normal equations (AA^T) with vector b
@@ -104,7 +103,7 @@ double vector_normal_eqn_vector_product(
 
         if (row < wsize) {
             val += pown(brow, 2) * w[row_gid] / y[row_gid];
-        } 
+        }
 
         for (; col_ptr < col_ptr_end; col_ptr++) {
             col_start = Anorm_colptr[col_ptr];
@@ -123,7 +122,7 @@ double vector_normal_eqn_vector_product(
 
             val += brow*inner_val*b[col*gsize + gid];
             // if (gid == 0) {
-            //     //printf("Alpha: %g %g\n", r_z, alpha);                    
+            //     //printf("Alpha: %g %g\n", r_z, alpha);
             //     printf("row [%d]; %g %g %g\n", row, brow, b[col*gsize + gid], val);
             // }
         }
@@ -186,7 +185,7 @@ void preconditioned_residuals(
     __global double* z,
     __global double* y,
     __global double* w,
-    uint wsize,    
+    uint wsize,
     __global double* r,
     __global double* out
 ) {
@@ -335,7 +334,7 @@ uint normal_eqn_step(
     __global double* z,
     __global double* y,
     __global double* w,
-    uint wsize,    
+    uint wsize,
     __global double* b,
     __global double* c,
     double delta,
@@ -354,8 +353,8 @@ uint normal_eqn_step(
     uint gsize = get_global_size(0);
 
     // Compute feasibilities
-    double normr = primal_feasibility(Aindptr, Aindices, Adata, Asize, x, w, wsize, b);
-    double norms = dual_feasibility(ATindptr, ATindices, ATdata, ATsize, y, c, z);
+    double normr = primal_feasibility(Aindptr, Aindices, Adata, Asize, ATsize, x, w, wsize, b);
+    double norms = dual_feasibility(ATindptr, ATindices, ATdata, ATsize, Asize, y, c, z);
     // Compute optimality
     double gamma = dot_product(z, x, ATsize) + dot_product(w, y, wsize);
     double mu = delta * gamma / (ATsize + wsize);
@@ -366,7 +365,7 @@ uint normal_eqn_step(
     if (gid == 0) {
         printf("%d %d norm-r: %g, norm-s: %g, gamma: %g, max(x): %g, max(y): %g\n", gid, wsize, normr, norms, gamma, max_x, max_y);
     }
-    if ((normr < 1e-6) && (norms < 1e-6) && (gamma < 1e-6)) {
+    if ((normr < 1e-8) && (norms < 1e-8) && (gamma < 1e-8)) {
         // Feasible and optimal; no further work!
         // TODO set a status output?
         return 0;
@@ -426,11 +425,11 @@ __kernel void normal_eqn_solve(
     __global double* w,
     uint wsize,
     __global double* b,
-    __global double* c,    
+    __global double* c,
     double delta,
     __global double* dx,
     __global double* dz,
-    __global double* dy,  
+    __global double* dy,
     __global double* dw,
     __global double* r,
     __global double* p,
