@@ -18,10 +18,10 @@ class SparseMatrixClBuffer:
     nrows: np.uint32
 
 
-def create_sparse_matrix_buffer(cl_context: cl.Context, a: sparse.csr_matrix) -> SparseMatrixClBuffer:
+def create_sparse_matrix_buffer(cl_context: cl.Context, a: sparse.csr_matrix, float_type: str = 'd') -> SparseMatrixClBuffer:
     """Create and populate buffers in the OpenCL context for the given sparse matrix"""
 
-    data = cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=a.data)
+    data = cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=a.data.astype(float_type))
     indices = cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=a.indices.astype(np.uint32))
     indptr = cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=a.indptr.astype(np.uint32))
     return SparseMatrixClBuffer(data, indices, indptr, np.uint32(a.shape[0]))
@@ -107,7 +107,6 @@ def create_sparse_normal_matrix_indices(a: sparse.csr_matrix) -> SparseNormalMat
 
 def create_sparse_normal_matrix_buffers(cl_context: cl.Context, indices: SparseNormalMatrix
                                         ) -> SparseNormalMatrixClBuffer:
-
     row_indptrptr = cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=indices.rowptr)
     diag_indptrptr = cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=indices.diagptr)
     col_indptrptr = cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=indices.colptr)
@@ -160,7 +159,7 @@ def create_sparse_normal_matrix_cholesky_indices(a: sparse.csr_matrix) -> Sparse
     indices = []
 
     for i in range(a.shape[0]):
-        for j in range(i+1):
+        for j in range(i + 1):
             # Search for matching indices in the a matrix for element AAT[i, j]
             ii = a.indptr[i]
             ii_max = a.indptr[i + 1]
@@ -252,14 +251,13 @@ class SparseNormalCholeskyClBuffers:
     lindptr: cl.Buffer
     ldiag_indptr: cl.Buffer
     lindices: cl.Buffer
-    ltindptr:  cl.Buffer
-    ltindices:  cl.Buffer
-    ltmap:  cl.Buffer
+    ltindptr: cl.Buffer
+    ltindices: cl.Buffer
+    ltmap: cl.Buffer
 
 
 def create_sparse_normal_matrix_cholesky_buffers(cl_context: cl.Context,
                                                  indices: SparseNormalCholeskyIndices) -> SparseNormalCholeskyClBuffers:
-
     return SparseNormalCholeskyClBuffers(
         cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=indices.anorm_indptr),
         cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=indices.anorm_indptr_i),
@@ -279,26 +277,26 @@ def create_sparse_normal_matrix_cholesky_buffers(cl_context: cl.Context,
 
 def sparse_normal_matrix_cholesky_decomposition(
         cl_context: cl.Context, cl_queue: cl.CommandQueue, a: sparse.csr_matrix,
-        x: np.ndarray, z: np.ndarray, y: np.ndarray, w: np.ndarray
+        x: np.ndarray, z: np.ndarray, y: np.ndarray, w: np.ndarray,
+        float_type: str = 'd'
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-
-    a_buf = create_sparse_matrix_buffer(cl_context, a)
+    a_buf = create_sparse_matrix_buffer(cl_context, a, float_type=float_type)
     indices = create_sparse_normal_matrix_cholesky_indices(a)
     decomp_buf = create_sparse_normal_matrix_cholesky_buffers(cl_context, indices)
 
-    x_buf = cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=x)
-    z_buf = cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=z)
-    y_buf = cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=y)
-    w_buf = cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=w)
+    x_buf = cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=x.astype(float_type))
+    z_buf = cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=z.astype(float_type))
+    y_buf = cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=y.astype(float_type))
+    w_buf = cl.Buffer(cl_context, MF.READ_ONLY | MF.COPY_HOST_PTR, hostbuf=w.astype(float_type))
 
     gsize = x.shape[1]
 
     # Create a local vector and context buffer for the result
-    ldata = np.zeros((indices.lindices.shape[0], gsize))
+    ldata = np.zeros((indices.lindices.shape[0], gsize), dtype=float_type)
     ldata_buf = cl.Buffer(cl_context, MF.WRITE_ONLY, ldata.nbytes)
 
     # Get the cl program
-    program = get_cl_program(cl_context, filename='path_following_direct.cl')
+    program = get_cl_program(cl_context, filename='path_following_direct.cl', float_type=float_type)
     t0 = time.perf_counter()
     evt = program.normal_matrix_cholesky_decomposition(
         cl_queue,

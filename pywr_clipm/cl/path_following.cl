@@ -3,20 +3,20 @@
 
 
 __kernel void normal_matrix_vector_product(
-    __constant double* Adata, uint Asize,
+    __constant REAL* Adata, uint Asize,
     __constant uint* Anorm_rowptr,
     __constant uint* Anorm_colptr,
     __constant uint* Anorm_colindices,
     __constant uint* Anorm_indices,
     __constant uint* Anorm_indptr_i,
     __constant uint* Anorm_indptr_j,
-    __global double* x,
-    __global double* z,
-    __global double* y,
-    __global double* w,
+    __global REAL* x,
+    __global REAL* z,
+    __global REAL* y,
+    __global REAL* w,
     uint wsize,
-    __global double* b,
-    __global double* out
+    __global REAL* b,
+    __global REAL* out
 ) {
     /* Compute the product of the normal equations (w/y + AA^T) with vector b
 
@@ -27,7 +27,7 @@ __kernel void normal_matrix_vector_product(
     uint row, col, ii, jj;
     uint row_gid, kk;
     uint col_start, col_end, col_ptr, col_ptr_end;
-    double val, inner_val;
+    REAL val, inner_val;
 
     for (row=0; row<Asize; row++) {
         row_gid = row*gsize + gid;
@@ -64,8 +64,8 @@ __kernel void normal_matrix_vector_product(
 }
 
 
-double vector_normal_eqn_vector_product(
-    __constant double* Adata,
+REAL vector_normal_eqn_vector_product(
+    __constant REAL* Adata,
     uint Asize,
     __constant uint* Anorm_rowptr,
     __constant uint* Anorm_colptr,
@@ -73,12 +73,12 @@ double vector_normal_eqn_vector_product(
     __constant uint* Anorm_indices,
     __constant uint* Anorm_indptr_i,
     __constant uint* Anorm_indptr_j,
-    __global double* x,
-    __global double* z,
-    __global double* y,
-    __global double* w,
+    __global REAL* x,
+    __global REAL* z,
+    __global REAL* y,
+    __global REAL* w,
     uint wsize,
-    __global double* b
+    __global REAL* b
 ) {
     /* Compute the product of the normal equations (AA^T) with vector b
 
@@ -89,9 +89,9 @@ double vector_normal_eqn_vector_product(
     uint row, col, ii, jj, ik;
     uint row_gid, kk;
     uint col_start, col_end, col_ptr, col_ptr_end;
-    double val = 0.0;
-    double brow;
-    double inner_val;
+    REAL val = 0.0;
+    REAL brow;
+    REAL inner_val;
 
     for (row=0; row<Asize; row++) {
         row_gid = row*gsize + gid;
@@ -134,7 +134,7 @@ double vector_normal_eqn_vector_product(
 
 
 void residuals(
-    __constant double* Adata,
+    __constant REAL* Adata,
     uint Asize,
     __constant uint* Anorm_rowptr,
     __constant uint* Anorm_colptr,
@@ -142,14 +142,14 @@ void residuals(
     __constant uint* Anorm_indices,
     __constant uint* Anorm_indptr_i,
     __constant uint* Anorm_indptr_j,
-    __global double* x,
-    __global double* z,
-    __global double* y,
-    __global double* w,
+    __global REAL* x,
+    __global REAL* z,
+    __global REAL* y,
+    __global REAL* w,
     uint wsize,
-    __global double* b,
-    __global double* dy,
-    __global double* out
+    __global REAL* b,
+    __global REAL* dy,
+    __global REAL* out
 ) {
     /* Compute the residual, r = b - (w/y + A(x/z)A^T)dy
     */
@@ -173,7 +173,7 @@ void residuals(
 
 
 void preconditioned_residuals(
-    __constant double* Adata,
+    __constant REAL* Adata,
     uint Asize,
     __constant uint* Anorm_diagptr,
     __constant uint* Anorm_colptr,
@@ -181,13 +181,13 @@ void preconditioned_residuals(
     __constant uint* Anorm_indices,
     __constant uint* Anorm_indptr_i,
     __constant uint* Anorm_indptr_j,
-    __global double* x,
-    __global double* z,
-    __global double* y,
-    __global double* w,
+    __global REAL* x,
+    __global REAL* z,
+    __global REAL* y,
+    __global REAL* w,
     uint wsize,
-    __global double* r,
-    __global double* out
+    __global REAL* r,
+    __global REAL* out
 ) {
     /* Compute z = M^{-1}r
 
@@ -198,7 +198,7 @@ void preconditioned_residuals(
     uint row, ii, jj, ik;
     uint row_gid, kk;
     uint col_start, col_end, col_ptr, col_ptr_end;
-    double val;
+    REAL val;
 
     for (row=0; row<Asize; row++) {
         row_gid = row*gsize + gid;
@@ -232,7 +232,7 @@ void preconditioned_residuals(
 
 
 __kernel void normal_eqn_conjugate_gradient(
-    __constant double* Adata,
+    __constant REAL* Adata,
     uint Asize,
     __constant uint* Anorm_rowptr,
     __constant uint* Anorm_diagptr,
@@ -241,16 +241,16 @@ __kernel void normal_eqn_conjugate_gradient(
     __constant uint* Anorm_indices,
     __constant uint* Anorm_indptr_i,
     __constant uint* Anorm_indptr_j,
-    __global double* x,
-    __global double* z,
-    __global double* y,
-    __global double* w,
+    __global REAL* x,
+    __global REAL* z,
+    __global REAL* y,
+    __global REAL* w,
     uint wsize,
-    __global double* b,
-    __global double* dy,
-    __global double* r,
-    __global double* p,
-    __global double* s
+    __global REAL* b,
+    __global REAL* dy,
+    __global REAL* r,
+    __global REAL* p,
+    __global REAL* s
 ) {
     /* Solve the normal equations for dy
 
@@ -259,7 +259,7 @@ __kernel void normal_eqn_conjugate_gradient(
     */
     uint gid = get_global_id(0);
     uint iter;
-    double r_z, r_z_next, alpha, rr, beta;
+    REAL r_z, r_z_next, alpha, rr, beta;
 
     // Compute the initial residuals
     residuals(Adata, Asize, Anorm_rowptr, Anorm_colptr, Anorm_colindices, Anorm_indices,
@@ -330,21 +330,21 @@ uint normal_eqn_step(
     __constant uint* Anorm_indices,
     __constant uint* Anorm_indptr_i,
     __constant uint* Anorm_indptr_j,
-    __global double* x,
-    __global double* z,
-    __global double* y,
-    __global double* w,
+    __global REAL* x,
+    __global REAL* z,
+    __global REAL* y,
+    __global REAL* w,
     uint wsize,
-    __global double* b,
-    __global double* c,
-    double delta,
-    __global double* dx,
-    __global double* dz,
-    __global double* dy,
-    __global double* dw,
-    __global double* r, __global double* p, __global double* s,  // Work arrays for conjugate gradient method
-    __global double* tmp, // work array size of x
-    __global double* tmp2 // work array size of b
+    __global REAL* b,
+    __global REAL* c,
+    REAL delta,
+    __global REAL* dx,
+    __global REAL* dz,
+    __global REAL* dy,
+    __global REAL* dw,
+    __global REAL* r, __global REAL* p, __global REAL* s,  // Work arrays for conjugate gradient method
+    __global REAL* tmp, // work array size of x
+    __global REAL* tmp2 // work array size of b
 ) {
     /* Perform a single step of the path-following algorithm.
 
@@ -353,14 +353,14 @@ uint normal_eqn_step(
     uint gsize = get_global_size(0);
 
     // Compute feasibilities
-    double normr = primal_feasibility(Aindptr, Aindices, Adata, Asize, ATsize, x, w, wsize, b);
-    double norms = dual_feasibility(ATindptr, ATindices, ATdata, ATsize, Asize, y, c, z);
+    REAL normr = primal_feasibility(Aindptr, Aindices, Adata, Asize, ATsize, x, w, wsize, b);
+    REAL norms = dual_feasibility(ATindptr, ATindices, ATdata, ATsize, Asize, y, c, z);
     // Compute optimality
-    double gamma = dot_product(z, x, ATsize) + dot_product(w, y, wsize);
-    double mu = delta * gamma / (ATsize + wsize);
+    REAL gamma = dot_product(z, x, ATsize) + dot_product(w, y, wsize);
+    REAL mu = delta * gamma / (ATsize + wsize);
 
-    double max_x = vector_max(x, ATsize);
-    double max_y = vector_max(y, Asize);
+    REAL max_x = vector_max(x, ATsize);
+    REAL max_y = vector_max(y, Asize);
 
     if (gid == 0) {
         printf("%d %d norm-r: %g, norm-s: %g, gamma: %g, max(x): %g, max(y): %g\n", gid, wsize, normr, norms, gamma, max_x, max_y);
@@ -391,7 +391,7 @@ uint normal_eqn_step(
     //     dx = (c - AT.dot(y) - AT.dot(dy) + mu/x)*x/z
     //     dz = (mu - z*dx)/x - z
     //     dw = (mu - w*dy)/y - w
-    double theta = compute_dx_dz_dw(
+    REAL theta = compute_dx_dz_dw(
         Asize, ATindptr, ATindices, ATdata, ATsize,
         x, z, y, w, wsize, c, dy, mu, dx, dz, dw
     );
@@ -419,23 +419,23 @@ __kernel void normal_eqn_solve(
     __constant uint* Anorm_indices,
     __constant uint* Anorm_indptr_i,
     __constant uint* Anorm_indptr_j,
-    __global double* x,
-    __global double* z,
-    __global double* y,
-    __global double* w,
+    __global REAL* x,
+    __global REAL* z,
+    __global REAL* y,
+    __global REAL* w,
     uint wsize,
-    __global double* b,
-    __global double* c,
-    double delta,
-    __global double* dx,
-    __global double* dz,
-    __global double* dy,
-    __global double* dw,
-    __global double* r,
-    __global double* p,
-    __global double* s,  // Work arrays for conjugate gradient method
-    __global double* tmp, // work array size of x
-    __global double* tmp2, // work array size of b
+    __global REAL* b,
+    __global REAL* c,
+    REAL delta,
+    __global REAL* dx,
+    __global REAL* dz,
+    __global REAL* dy,
+    __global REAL* dw,
+    __global REAL* r,
+    __global REAL* p,
+    __global REAL* s,  // Work arrays for conjugate gradient method
+    __global REAL* tmp, // work array size of x
+    __global REAL* tmp2, // work array size of b
     uint init
 ) {
     uint i;

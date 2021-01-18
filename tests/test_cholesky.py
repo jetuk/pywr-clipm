@@ -4,6 +4,7 @@ import numpy as np
 from numpy.testing import assert_allclose
 from pywr_clipm.sparse import create_sparse_normal_matrix_cholesky_indices, create_sparse_normal_matrix_cholesky_buffers, \
     SparseNormalCholeskyClBuffers, sparse_normal_matrix_cholesky_decomposition
+import pytest
 
 
 def test_create_sparse_normal_matrix_cholesky_buffer(cl_context: cl.Context):
@@ -18,7 +19,8 @@ def test_create_sparse_normal_matrix_cholesky_buffer(cl_context: cl.Context):
     assert isinstance(cl_buf, SparseNormalCholeskyClBuffers)
 
 
-def test_cholesky_decomposition(cl_context: cl.Context, cl_queue: cl.CommandQueue):
+@pytest.mark.parametrize('float_type', ['d', 'f'])
+def test_cholesky_decomposition(cl_context: cl.Context, cl_queue: cl.CommandQueue, float_type):
     """Test decomposition of normal matrix"""
 
     np.random.seed(12345)
@@ -27,13 +29,13 @@ def test_cholesky_decomposition(cl_context: cl.Context, cl_queue: cl.CommandQueu
     a = sparse.random(n, n, 0.2, format='csr') + sparse.eye(n)
     wsize = n // 2
 
-    x = np.ones((n, gsize)).astype(np.float64)
-    z = np.ones((n, gsize)).astype(np.float64)
-    y = np.ones((n, gsize)).astype(np.float64)
-    w = np.ones((wsize, gsize)).astype(np.float64)
+    x = np.ones((n, gsize)).astype(float_type)
+    z = np.ones((n, gsize)).astype(float_type)
+    y = np.ones((n, gsize)).astype(float_type)
+    w = np.ones((wsize, gsize)).astype(float_type)
 
     ldata, lindices, lindptr = sparse_normal_matrix_cholesky_decomposition(
-        cl_context, cl_queue, a, x, z, y, w
+        cl_context, cl_queue, a, x, z, y, w, float_type=float_type
     )
 
     ad = a.todense()

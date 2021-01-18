@@ -2,7 +2,7 @@
 
 
 __kernel void normal_matrix_cholesky_decomposition(
-    __constant double* Adata, uint Asize,
+    __constant REAL* Adata, uint Asize,
     __constant uint* Anorm_indptr,
     __constant uint* Anorm_indptr_i,
     __constant uint* Anorm_indptr_j,
@@ -10,15 +10,15 @@ __kernel void normal_matrix_cholesky_decomposition(
     __constant uint* Ldecomp_indptr,
     __constant uint* Ldecomp_indptr_i,
     __constant uint* Ldecomp_indptr_j,
-    __global double* x,
-    __global double* z,
-    __global double* y,
-    __global double* w,
+    __global REAL* x,
+    __global REAL* z,
+    __global REAL* y,
+    __global REAL* w,
     uint wsize,
     __constant uint* Lindptr,
     __constant uint* Ldiag_indptr,
     __constant uint* Lindices,
-    __global double* Ldata
+    __global REAL* Ldata
 ) {
     /*
     */
@@ -28,7 +28,7 @@ __kernel void normal_matrix_cholesky_decomposition(
     uint row_gid, xind;
     uint row_ind, row_ind_end;
     uint ind, ind_end;
-    double val;
+    REAL val;
 
     uint Lentry = 0;
 
@@ -82,9 +82,9 @@ __kernel void cholesky_solve(
     __constant uint* LTindptr,
     __constant uint* LTindices,
     __constant uint* LTmap,
-    __global double* Ldata,
-    __global double* b,
-    __global double* x
+    __global REAL* Ldata,
+    __global REAL* b,
+    __global REAL* x
 ) {
   /* Solve a system Ax = b for x given the decomposition of A as L.
 
@@ -147,21 +147,21 @@ __kernel void normal_eqn_step(
     __constant uint* LTindptr,
     __constant uint* LTindices,
     __constant uint* LTmap,
-    __global double* Ldata,
-    __global double* x,
-    __global double* z,
-    __global double* y,
-    __global double* w,
+    __global REAL* Ldata,
+    __global REAL* x,
+    __global REAL* z,
+    __global REAL* y,
+    __global REAL* w,
     uint wsize,
-    __global double* b,
-    __global double* c,
-    double delta,
-    __global double* dx,
-    __global double* dz,
-    __global double* dy,
-    __global double* dw,
-    __global double* tmp,
-    __global double* tmp2,
+    __global REAL* b,
+    __global REAL* c,
+    REAL delta,
+    __global REAL* dx,
+    __global REAL* dz,
+    __global REAL* dy,
+    __global REAL* dw,
+    __global REAL* tmp,
+    __global REAL* tmp2,
     __global uint* status
 ) {
     /* Perform a single step of the path-following algorithm.
@@ -171,20 +171,20 @@ __kernel void normal_eqn_step(
     uint gsize = get_global_size(0);
 
     // Compute feasibilities
-    double normr = primal_feasibility(Aindptr, Aindices, Adata, Asize, ATsize, x, w, wsize, b);
-    double norms = dual_feasibility(ATindptr, ATindices, ATdata, ATsize, Asize, y, c, z);
+    REAL normr = primal_feasibility(Aindptr, Aindices, Adata, Asize, ATsize, x, w, wsize, b);
+    REAL norms = dual_feasibility(ATindptr, ATindices, ATdata, ATsize, Asize, y, c, z);
     // Compute optimality
-    double gamma = dot_product(z, x, ATsize) + dot_product(w, y, wsize);
-    double mu = delta * gamma / (ATsize + wsize);
+    REAL gamma = dot_product(z, x, ATsize) + dot_product(w, y, wsize);
+    REAL mu = delta * gamma / (ATsize + wsize);
     // update relative feasibility tolerance
     gamma = gamma / (1 + vector_norm(x, ATsize) + vector_norm(y, Asize));
 
     #ifdef DEBUG_GID
     if (gid == DEBUG_GID) {
-        printf("%d %d norm-r: %g, norm-s: %g, gamma: %g, max(x): %g, max(y): %g\n", gid, wsize, normr, norms, gamma);
+        printf("%d %d norm-r: %g, norm-s: %g, gamma: %g\n", gid, wsize, normr, norms, gamma);
     }
     #endif
-    if ((normr < 1e-6) && (norms < 1e-8) && (gamma < 1e-8)) {
+    if ((normr < EPS) && (norms < EPS) && (gamma < EPS)) {
         // Feasible and optimal; no further work!
         status[gid] = 0;
         return;
@@ -236,7 +236,7 @@ __kernel void normal_eqn_step(
     //     dx = (c - AT.dot(y) - AT.dot(dy) + mu/x)*x/z
     //     dz = (mu - z*dx)/x - z
     //     dw = (mu - w*dy)/y - w
-    double theta = compute_dx_dz_dw(
+    REAL theta = compute_dx_dz_dw(
         Asize, ATindptr, ATindices, ATdata, ATsize,
         x, z, y, w, wsize, c, dy, mu, dx, dz, dw
     );
@@ -257,10 +257,10 @@ __kernel void normal_eqn_step(
 __kernel void normal_eqn_init(
     uint Asize,
     uint ATsize,
-    __global double* x,
-    __global double* z,
-    __global double* y,
-    __global double* w,
+    __global REAL* x,
+    __global REAL* z,
+    __global REAL* y,
+    __global REAL* w,
     uint wsize
 ) {
     vector_set(x, 1.0, ATsize);

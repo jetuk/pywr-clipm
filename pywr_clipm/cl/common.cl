@@ -5,13 +5,13 @@
 
 
 #pragma OPENCL EXTENSION cl_khr_fp64 : enable
-#define matrix(N) __constant uint* N##indptr, __constant uint* N##indices, __constant double* N##data, uint N##size
-#define write_matrix(N) __constant uint* N##indptr, __constant uint* N##indices, __global double* N##data
+#define matrix(N) __constant uint* N##indptr, __constant uint* N##indices, __constant REAL* N##data, uint N##size
+#define write_matrix(N) __constant uint* N##indptr, __constant uint* N##indices, __global REAL* N##data
 
 __kernel void matrix_vector_product(
      matrix(A),
-    __global double* x,
-    __global double* out
+    __global REAL* x,
+    __global REAL* out
 ) {
     /* Compute out = Ax
      *
@@ -21,7 +21,7 @@ __kernel void matrix_vector_product(
     uint row_gid;
     uint row, col;
     uint index, last_index;
-    double val;
+    REAL val;
 
     for (row=0; row<Asize; row++) {
         row_gid = row*gsize + gid;
@@ -40,13 +40,13 @@ __kernel void matrix_vector_product(
     }
 }
 
-double dot_product(__global double* x, __global double* y, int N) {
+REAL dot_product(__global REAL* x, __global REAL* y, int N) {
     /* Return dot product of x and y */
     uint gid = get_global_id(0);
     uint gsize = get_global_size(0);
     uint row;
     uint row_gid;
-    double val = 0.0;
+    REAL val = 0.0;
 
     for (row=0; row<N; row++) {
         row_gid = row*gsize + gid;
@@ -55,7 +55,7 @@ double dot_product(__global double* x, __global double* y, int N) {
     return val;
 }
 
-void vector_copy(__global double* x, __global double* y, int N) {
+__kernel void vector_copy(__global REAL* x, __global REAL* y, int N) {
     /* Copy vector x in to y */
     uint gid = get_global_id(0);
     uint gsize = get_global_size(0);
@@ -68,7 +68,20 @@ void vector_copy(__global double* x, __global double* y, int N) {
     }
 }
 
-void vector_update(__global double* x, __global double* y, double xscale, double yscale, int N) {
+__kernel void vector_copy_fd(__global float* x, __global double* y, int N) {
+    /* Copy vector x in to y */
+    uint gid = get_global_id(0);
+    uint gsize = get_global_size(0);
+    uint row;
+    uint row_gid;
+
+    for (row=0; row<N; row++) {
+        row_gid = row*gsize + gid;
+        y[row_gid] = x[row_gid];
+    }
+}
+
+void vector_update(__global REAL* x, __global REAL* y, REAL xscale, REAL yscale, int N) {
     /* x = x*xscale + y*yscale */
     uint gid = get_global_id(0);
     uint gsize = get_global_size(0);
@@ -81,7 +94,7 @@ void vector_update(__global double* x, __global double* y, double xscale, double
     }
 }
 
-void vector_set(__global double* x, double scalar, int N) {
+void vector_set(__global REAL* x, REAL scalar, int N) {
     /* x = scalar */
     uint gid = get_global_id(0);
     uint gsize = get_global_size(0);
@@ -94,14 +107,35 @@ void vector_set(__global double* x, double scalar, int N) {
     }
 }
 
-double vector_max(__global double *x, int N) {
+
+__kernel void vector_float_to_double(__global float* in, __global double* out, __global double* tmp, uint N) {
+    /* Convert vector from float to double */
+    uint gid = get_global_id(0);
+    uint gsize = get_global_size(0);
+    uint row;
+    uint row_gid;
+
+    for (row=0; row<N; row++) {
+        row_gid = row*gsize + gid;
+        tmp[row_gid] = convert_double(in[row_gid]);
+        //printf("%d %d %g\n", gid, row_gid, in[row_gid]);
+    }
+
+    for (row=0; row<N; row++) {
+        row_gid = row*gsize + gid;
+        out[row_gid] = tmp[row_gid];
+        //printf("%d %d %g\n", gid, row_gid, out[row_gid]);
+    }
+}
+
+REAL vector_max(__global REAL *x, int N) {
     /* return max(x) */
     uint gid = get_global_id(0);
     uint gsize = get_global_size(0);
     uint row;
     uint row_gid;
 
-    double val = -INFINITY;
+    REAL val = -INFINITY;
 
     for (row=0; row<N; row++) {
         row_gid = row*gsize + gid;
@@ -110,14 +144,14 @@ double vector_max(__global double *x, int N) {
     return val;
 }
 
-double vector_norm(__global double *x, int N) {
+REAL vector_norm(__global REAL *x, int N) {
     /* return max(x) */
     uint gid = get_global_id(0);
     uint gsize = get_global_size(0);
     uint row;
     uint row_gid;
 
-    double val = 0.0;
+    REAL val = 0.0;
 
     for (row=0; row<N; row++) {
         row_gid = row*gsize + gid;
@@ -130,15 +164,15 @@ double vector_norm(__global double *x, int N) {
 __kernel void normal_eqn_rhs(
     matrix(A),  // Sparse A matrix
     matrix(AT),  // Sparse transpose of A matrix
-    __global double* x,
-    __global double* z,
-    __global double* y,
-    __global double* b,
-    __global double* c,
-    double mu,
+    __global REAL* x,
+    __global REAL* z,
+    __global REAL* y,
+    __global REAL* b,
+    __global REAL* c,
+    REAL mu,
     uint wsize,
-    __global double* tmp, // work array size of x
-    __global double* out // work array size of b
+    __global REAL* tmp, // work array size of x
+    __global REAL* out // work array size of b
 ) {
     /* Compute the right-hand side of the system of primal normal equations
 
@@ -148,7 +182,7 @@ __kernel void normal_eqn_rhs(
     uint gsize = get_global_size(0);
     uint row, col, index, last_index;
     uint row_gid;
-    double val;
+    REAL val;
 
     // Calculate tmp = At.dot(y)
     matrix_vector_product(ATindptr, ATindices, ATdata, ATsize, y, tmp);
@@ -186,13 +220,13 @@ __kernel void normal_eqn_rhs(
     }
 }
 
-double primal_feasibility(
+REAL primal_feasibility(
     matrix(A),  // Sparse A matrix
     uint ATsize,
-    __global double* x,
-    __global double* w,
+    __global REAL* x,
+    __global REAL* w,
     uint wsize,
-    __global double* b
+    __global REAL* b
 ) {
     /* Calculate primal-feasibility
 
@@ -202,10 +236,10 @@ double primal_feasibility(
     uint gsize = get_global_size(0);
     uint row, col, index, last_index;
     uint row_gid;
-    double val;
+    REAL val;
 
-    double normx = 0.0;
-    double normr = 0.0;
+    REAL normx = 0.0;
+    REAL normr = 0.0;
 
     // Compute ||x||
     for (col=0; col<ATsize; col++) {
@@ -236,10 +270,10 @@ double primal_feasibility(
     return sqrt(normr) / (1 + sqrt(normx));
 }
 
-double dual_feasibility(
+REAL dual_feasibility(
     matrix(AT),  // Sparse A matrix
     uint Asize,
-    __global double* y, __global double* c, __global double* z
+    __global REAL* y, __global REAL* c, __global REAL* z
 ) {
     /* Calculate dual-feasibility
 
@@ -249,10 +283,10 @@ double dual_feasibility(
     uint gsize = get_global_size(0);
     uint row, col, index, last_index;
     uint row_gid;
-    double val;
+    REAL val;
 
-    double normy = 0.0;
-    double norms = 0.0;
+    REAL normy = 0.0;
+    REAL norms = 0.0;
 
     for (col=0; col<Asize; col++) {
         normy += pown(y[col*gsize+gid], 2);
@@ -279,20 +313,20 @@ double dual_feasibility(
     return sqrt(norms)/(1 + sqrt(normy));
 }
 
-double compute_dx_dz_dw(
+REAL compute_dx_dz_dw(
     uint Asize,
     matrix(AT), // Sparse transpose of A matrix
-    __global double* x,
-    __global double* z,
-    __global double* y,
-    __global double* w,
+    __global REAL* x,
+    __global REAL* z,
+    __global REAL* y,
+    __global REAL* w,
     uint wsize,
-    __global double* c,
-    __global double* dy,
-    double mu,
-    __global double* dx,
-    __global double* dz,
-    __global double* dw
+    __global REAL* c,
+    __global REAL* dy,
+    REAL mu,
+    __global REAL* dx,
+    __global REAL* dz,
+    __global REAL* dw
 ) {
     /*  Compute the path step changes given known dy and return maximum value of theta.
 
@@ -306,10 +340,10 @@ double compute_dx_dz_dw(
     uint gsize = get_global_size(0);
     uint row, col, index, last_index;
     uint row_gid;
-    double val, val2;
+    REAL val, val2;
 
-    double theta_xz = 0.0;
-    double theta_wy = 0.0;
+    REAL theta_xz = 0.0;
+    REAL theta_wy = 0.0;
 
     for (row=0; row<ATsize; row++) {
         row_gid = row*gsize + gid;

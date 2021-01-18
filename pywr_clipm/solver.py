@@ -504,7 +504,7 @@ class BasePathFollowingClSolver(Solver):
                 if data.is_link:
                     node_flows[data.id, :] += flow / 2
                 else:
-                    node_flows[data.id, :] += flow / 2
+                    node_flows[data.id, :] += flow
 
         for edge_id, col in self._edge_column_map.items():
             edge = self.flow_edges[edge_id]
@@ -632,8 +632,10 @@ class PathFollowingDirectClSolver(BasePathFollowingClSolver):
         MF = cl.mem_flags
 
         # Copy the sparse matrix, it's normal indices  and vector to the context
-        self.a_buf = create_sparse_matrix_buffer(self.cl_context, self.a)
-        self.at_buf = create_sparse_matrix_buffer(self.cl_context, self.a.T.tocsr())
+        self.a_buf_f = create_sparse_matrix_buffer(self.cl_context, self.a, float_type='f')
+        self.at_buf_f = create_sparse_matrix_buffer(self.cl_context, self.a.T.tocsr(), float_type='f')
+        self.a_buf_d = create_sparse_matrix_buffer(self.cl_context, self.a, float_type='d')
+        self.at_buf_d = create_sparse_matrix_buffer(self.cl_context, self.a.T.tocsr(), float_type='d')
 
         cholesky_indices = create_sparse_normal_matrix_cholesky_indices(self.a)
         self.cholesky_buf = create_sparse_normal_matrix_cholesky_buffers(self.cl_context, cholesky_indices)
@@ -665,7 +667,8 @@ class PathFollowingDirectClSolver(BasePathFollowingClSolver):
         self.status = np.zeros(gsize, dtype=np.uint32)
         self.status_buf = cl.Buffer(self.cl_context, MF.WRITE_ONLY, self.status.nbytes)
 
-        self.program = get_cl_program(self.cl_context, filename='path_following_direct.cl')
+        self.program_d = get_cl_program(self.cl_context, filename='path_following_direct.cl', float_type='d')
+        self.program_f = get_cl_program(self.cl_context, filename='path_following_direct.cl', float_type='f')
 
     def solve(self, model):
 
@@ -678,17 +681,17 @@ class PathFollowingDirectClSolver(BasePathFollowingClSolver):
         # print('c', self.c)
 
         # TODO can b be copied to device while c is updated on host?
-        cl.enqueue_copy(self.cl_queue, self.b_buf, self.b)
-        cl.enqueue_copy(self.cl_queue, self.c_buf, self.c)
+        cl.enqueue_copy(self.cl_queue, self.b_buf, self.b.astype('f'))
+        cl.enqueue_copy(self.cl_queue, self.c_buf, self.c.astype('f'))
 
-        a_buf = self.a_buf
-        at_buf = self.at_buf
+        a_buf = self.a_buf_f
+        at_buf = self.at_buf_f
         cholesky_buf = self.cholesky_buf
 
         print('Starting solve ...', model.timestepper.current)
         t0 = time.perf_counter()
 
-        self.program.normal_eqn_init(
+        self.program_f.normal_eqn_init(
             self.cl_queue, (self.b.shape[1],), None,
             a_buf.nrows,
             at_buf.nrows,
@@ -699,8 +702,67 @@ class PathFollowingDirectClSolver(BasePathFollowingClSolver):
             np.uint32(self.num_inequality_constraints),
         )
 
-        for iter in range(300):
-            self.program.normal_eqn_step(
+        for iter in range(200):
+            self.program_f.normal_eqn_step(
+                self.cl_queue, (self.b.shape[1],), None,
+                a_buf.indptr, a_buf.indices, a_buf.data, a_buf.nrows,
+                at_buf.indptr, at_buf.indices, at_buf.data, at_buf.nrows,
+                cholesky_buf.anorm_indptr, cholesky_buf.anorm_indptr_i, cholesky_buf.anorm_indptr_j,
+                cholesky_buf.anorm_indices,
+                cholesky_buf.ldecomp_indptr, cholesky_buf.ldecomp_indptr_i, cholesky_buf.ldecomp_indptr_j,
+                cholesky_buf.lindptr, cholesky_buf.ldiag_indptr, cholesky_buf.lindices,
+                cholesky_buf.ltindptr, cholesky_buf.ltindices, cholesky_buf.ltmap,
+                self.ldata_buf,
+                self.x_buf,
+                self.z_buf,
+                self.y_buf,
+                self.w_buf,
+                np.uint32(self.num_inequality_constraints),
+                self.b_buf,
+                self.c_buf,
+                np.float32(0.02),
+                self.dx_buf,
+                self.dz_buf,
+                self.dy_buf,
+                self.dw_buf,
+                self.tmp_buf,
+                self.rhs_buf,
+                self.status_buf,
+            )
+            cl.enqueue_copy(self.cl_queue, self.status, self.status_buf)
+            if np.all(self.status == 0):
+                break
+
+        print('Switching to double precision ...')
+
+        for buf in (self.c_buf, self.x_buf, self.z_buf):
+
+            self.program_d.vector_copy_fd(
+                self.cl_queue, (self.b.shape[1],), None,
+                buf, self.tmp_buf, np.int32(self.c.shape[0])
+            )
+
+            self.program_d.vector_copy(
+                self.cl_queue, (self.b.shape[1],), None,
+                self.tmp_buf, buf, np.int32(self.c.shape[0])
+            )
+
+        for buf in (self.b_buf, self.y_buf, self.w_buf):
+            self.program_d.vector_copy_fd(
+                self.cl_queue, (self.b.shape[1],), None,
+                buf, self.rhs_buf, np.int32(self.b.shape[0])
+            )
+
+            self.program_d.vector_copy(
+                self.cl_queue, (self.b.shape[1],), None,
+                self.rhs_buf, buf, np.int32(self.b.shape[0])
+            )
+
+        a_buf = self.a_buf_d
+        at_buf = self.at_buf_d
+
+        for iter in range(200):
+            self.program_d.normal_eqn_step(
                 self.cl_queue, (self.b.shape[1],), None,
                 a_buf.indptr, a_buf.indices, a_buf.data, a_buf.nrows,
                 at_buf.indptr, at_buf.indices, at_buf.data, at_buf.nrows,
@@ -737,10 +799,14 @@ class PathFollowingDirectClSolver(BasePathFollowingClSolver):
             print(self.status)
             print(np.sum(self.status))
             print(np.where(self.status == 1))
-            import pdb; pdb.set_trace()
+            # import pdb; pdb.set_trace()
             raise RuntimeError('Failed to solve!')
 
         if np.any(np.isnan(self.x)):
+            print(self.status)
+            print(np.sum(self.status))
+            print(np.where(self.status == 1))
+            # import pdb; pdb.set_trace()
             raise RuntimeError('NaNs in solution!')
 
         self.edge_flows_arr[...] = self.x#[:self.num_edges, :]
